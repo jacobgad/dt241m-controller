@@ -236,7 +236,7 @@ func (c *Controller) Rename(ctx context.Context, macAddr, raw string) (registry.
 	name, err := registry.ValidateName(raw)
 	if err != nil {
 		c.log.Warn("rename_rejected", "mac", adapter.MAC, "reason", err)
-		c.pub.name(ctx, adapter)
+		c.pub.rejectedName(ctx, adapter)
 		return adapter, &RejectedError{Reason: ReasonInvalidName, Detail: err.Error()}
 	}
 	previous := adapter.Name

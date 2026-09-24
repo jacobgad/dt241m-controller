@@ -1,5 +1,5 @@
 name: DT241M Controller
-version: "2.1.1"
+version: "2.1.2"
 slug: dt241m_controller
 description: MQTT bridge exposing PWAY DT241M HDMI-over-IP transmitters and receivers as Home Assistant devices
 url: https://github.com/jacobgad/dt241m-controller

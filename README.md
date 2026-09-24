@@ -165,7 +165,7 @@ dt241m-controller/
 
 ## Tests
 
-`go test -race ./...` runs 99 tests entirely offline against a simulated device network (an `http.RoundTripper` built from the captured fixtures). No test contacts real hardware or any historical device address. A golden file (`internal/controller/testdata/discovery.golden.json`) pins every Home Assistant discovery payload; regenerate it with `go test ./internal/controller -run Golden -update` after an intentional change. The suites cover the protocol contract, fixture parsing, classification, CIDR/config validation, the Supervisor MQTT lookup, registry behaviour, discovery, polling, DHCP identity safety, command ordering, hardware quirks, MQTT Discovery/behaviour and SQLite persistence/restart.
+`go test -race ./...` runs 100 tests entirely offline against a simulated device network (an `http.RoundTripper` built from the captured fixtures). No test contacts real hardware or any historical device address. A golden file (`internal/controller/testdata/discovery.golden.json`) pins every Home Assistant discovery payload; regenerate it with `go test ./internal/controller -run Golden -update` after an intentional change. The suites cover the protocol contract, fixture parsing, classification, CIDR/config validation, the Supervisor MQTT lookup, registry behaviour, discovery, polling, DHCP identity safety, command ordering, hardware quirks, MQTT Discovery/behaviour and SQLite persistence/restart.
 
 ## Limitations
 

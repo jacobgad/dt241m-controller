@@ -53,7 +53,7 @@ func (c *Controller) scan(ctx context.Context, reason string) {
 			c.observe(ctx, hit.IP, hit.Info)
 		},
 	})
-	c.pub.counts(ctx)
+	c.pub.scanFinished(ctx)
 	c.log.Info("discovery_completed", "reason", reason, "found", found.Load(), "known", c.registry.Counts().Known, "duration", c.now().Sub(started))
 }
 

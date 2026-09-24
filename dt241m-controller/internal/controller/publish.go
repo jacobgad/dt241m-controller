@@ -19,18 +19,19 @@ const publishTimeout = 5 * time.Second
 // publisher is the Home Assistant presenter. It decides what an observation means for
 // the broker, turns registry state into retained messages, and remembers what it last
 // sent so unchanged values are not repeated.
+//
+// Every entry point holds mu for its whole duration. Retained topics keep only the last
+// message, so two publications of the same topic must reach the broker in the order the
+// registry changed; a full sweep (everything) must therefore never interleave with a
+// per-adapter update taken from a newer snapshot, and vice versa.
 type publisher struct {
 	conn     mqtt.Connection
 	registry *registry.Registry
 	origin   mqtt.Origin
 	log      *slog.Logger
 
-	mu         sync.Mutex
-	lastCounts *registry.Counts
-
-	// sourceMu serialises every publish that embeds the source table, so a slower
-	// goroutine holding an older table can never overwrite a newer publication.
-	sourceMu    sync.Mutex
+	mu          sync.Mutex
+	lastCounts  *registry.Counts
 	lastSources registry.SourceTable
 }
 
@@ -38,6 +39,8 @@ type publisher struct {
 // adapters, availability on transitions, state when values moved, and the receivers'
 // Source lists whenever a transmitter was involved.
 func (p *publisher) observation(ctx context.Context, obs registry.Observation) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	a := obs.Adapter
 	if obs.Displaced != nil {
 		p.availability(ctx, *obs.Displaced)
@@ -63,6 +66,8 @@ func (p *publisher) observation(ctx context.Context, obs registry.Observation) {
 // renamed republishes what a user-set name touches: the name state, the device name in
 // every discovery config, and the receivers' Source lists if a transmitter was renamed.
 func (p *publisher) renamed(ctx context.Context, a registry.Adapter) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.name(ctx, a)
 	p.discovery(ctx, a)
 	if a.Role == dt241m.RoleTransmitter {
@@ -72,17 +77,27 @@ func (p *publisher) renamed(ctx context.Context, a registry.Adapter) {
 
 // offline publishes an adapter that stopped answering.
 func (p *publisher) offline(ctx context.Context, a registry.Adapter) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.availability(ctx, a)
 	p.counts(ctx)
 }
 
+// rejectedName re-sends the current name after a rejected rename so Home Assistant's text box snaps back.
+func (p *publisher) rejectedName(ctx context.Context, a registry.Adapter) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.name(ctx, a)
+}
+
 // everything re-sends the complete picture; used on connect and on Home Assistant's birth.
 func (p *publisher) everything(ctx context.Context) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.publish(ctx, mqtt.ControllerAvailability, mqtt.PayloadOnline)
 	for _, m := range mqtt.ControllerMessages(p.origin) {
 		p.publish(ctx, m.Topic, m.JSON())
 	}
-	p.sourceMu.Lock()
 	table := p.registry.Sources()
 	p.lastSources = table
 	for _, a := range p.registry.All() {
@@ -91,8 +106,9 @@ func (p *publisher) everything(ctx context.Context) {
 		p.name(ctx, a)
 		p.stateWith(ctx, a, table)
 	}
-	p.sourceMu.Unlock()
-	p.forceCounts(ctx)
+	counts := p.registry.Counts()
+	p.lastCounts = &counts
+	p.publishCounts(ctx, counts)
 }
 
 func (p *publisher) controllerOffline(ctx context.Context) {
@@ -100,8 +116,6 @@ func (p *publisher) controllerOffline(ctx context.Context) {
 }
 
 func (p *publisher) discovery(ctx context.Context, a registry.Adapter) {
-	p.sourceMu.Lock()
-	defer p.sourceMu.Unlock()
 	p.discoveryWith(ctx, a, p.registry.Sources())
 }
 
@@ -127,8 +141,6 @@ func (p *publisher) name(ctx context.Context, a registry.Adapter) {
 }
 
 func (p *publisher) state(ctx context.Context, a registry.Adapter) {
-	p.sourceMu.Lock()
-	defer p.sourceMu.Unlock()
 	p.stateWith(ctx, a, p.registry.Sources())
 }
 
@@ -149,21 +161,18 @@ func (p *publisher) stateWith(ctx context.Context, a registry.Adapter, table reg
 // counts publishes the Known/Online sensors when they changed since last time.
 func (p *publisher) counts(ctx context.Context) {
 	counts := p.registry.Counts()
-	p.mu.Lock()
 	unchanged := p.lastCounts != nil && *p.lastCounts == counts
 	p.lastCounts = &counts
-	p.mu.Unlock()
 	if !unchanged {
 		p.publishCounts(ctx, counts)
 	}
 }
 
-func (p *publisher) forceCounts(ctx context.Context) {
-	counts := p.registry.Counts()
+// scanFinished publishes counts after a sweep, which may have changed nothing.
+func (p *publisher) scanFinished(ctx context.Context) {
 	p.mu.Lock()
-	p.lastCounts = &counts
-	p.mu.Unlock()
-	p.publishCounts(ctx, counts)
+	defer p.mu.Unlock()
+	p.counts(ctx)
 }
 
 func (p *publisher) publishCounts(ctx context.Context, counts registry.Counts) {
@@ -174,8 +183,6 @@ func (p *publisher) publishCounts(ctx context.Context, counts registry.Counts) {
 // refreshSources republishes every receiver's Source select and state when the
 // transmitter catalogue (names or channels) differs from what was last published.
 func (p *publisher) refreshSources(ctx context.Context) {
-	p.sourceMu.Lock()
-	defer p.sourceMu.Unlock()
 	table := p.registry.Sources()
 	if table.Equal(p.lastSources) {
 		return

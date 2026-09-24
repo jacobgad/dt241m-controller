@@ -3,6 +3,7 @@ package mqtt
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -130,12 +131,12 @@ func (p *pahoConnection) messageHandlers() []MessageHandler {
 	return append([]MessageHandler{}, p.onMessage...)
 }
 
+// Publish relies on autopaho's own view of the session rather than the connected flag:
+// autopaho signals AwaitConnection before it runs OnConnectionUp, so the flag can lag
+// the moment publishing actually becomes possible.
 func (p *pahoConnection) Publish(ctx context.Context, topic string, payload string, retain bool) error {
-	if !p.Connected() {
-		return ErrNotConnected
-	}
 	_, err := p.cm.Publish(ctx, &paho.Publish{Topic: topic, QoS: 1, Retain: retain, Payload: []byte(payload)})
-	return err
+	return sessionError(err)
 }
 
 func (p *pahoConnection) Subscribe(ctx context.Context, topics []string) error {
@@ -144,6 +145,13 @@ func (p *pahoConnection) Subscribe(ctx context.Context, topics []string) error {
 		subs[i] = paho.SubscribeOptions{Topic: t, QoS: 1}
 	}
 	_, err := p.cm.Subscribe(ctx, &paho.Subscribe{Subscriptions: subs})
+	return sessionError(err)
+}
+
+func sessionError(err error) error {
+	if errors.Is(err, autopaho.ConnectionDownError) {
+		return ErrNotConnected
+	}
 	return err
 }
 

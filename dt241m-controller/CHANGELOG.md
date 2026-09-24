@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.1.2
+
+- Fix devices showing as unavailable (Channel empty, Source unavailable) after an add-on start or Home Assistant restart. A full republish running alongside the startup probe could leave a stale `offline` as the retained availability; publishes are now strictly ordered. Publishing also no longer depends on a connection flag that could lag the broker session, which had silently dropped the first republish.
+
 ## 2.1.1
 
 - Fix a race where two transmitters discovered at the same moment could leave receivers' **Source** option lists missing a transmitter until the next change

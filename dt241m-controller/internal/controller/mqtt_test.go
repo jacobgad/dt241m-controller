@@ -1,9 +1,11 @@
 package controller_test
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jacobgad/dt241m-controller/internal/controller"
 	"github.com/jacobgad/dt241m-controller/internal/mqtt"
@@ -210,4 +212,48 @@ func TestShutdownPublishesOfflineAndRefusesCommands(t *testing.T) {
 	}
 	_, err := h.ctrl.ChangeChannel(testutil.RxFixtureMAC, 4)
 	rejectedWith(t, err, controller.ReasonShuttingDown)
+}
+
+// TestFullSweepNeverOverwritesNewerAvailability reproduces the production upgrade fault:
+// Home Assistant's birth message (or a reconnect) starts a full republish from a snapshot
+// in which persisted adapters are still offline, while the startup probe is bringing
+// them online. Whatever the interleaving, the retained availability must end up online.
+func TestFullSweepNeverOverwritesNewerAvailability(t *testing.T) {
+	t.Parallel()
+	store := testutil.NewMemoryStore()
+	net := testutil.NewNetwork()
+	macs := []string{rxA, rxB, "cc:cc:cc:cc:cc:01", "cc:cc:cc:cc:cc:02", "cc:cc:cc:cc:cc:03"}
+	for i, m := range macs {
+		rx(m, fmt.Sprintf("192.168.1.%d", i+2), net)
+	}
+	seed := newHarness(t, harnessOptions{store: store, net: net})
+	seed.discover(t)
+
+	h := newHarness(t, harnessOptions{store: store, net: net})
+	h.mqtt.Delay = 100 * time.Microsecond
+	births := make(chan struct{})
+	go func() {
+		defer close(births)
+		for range 10 {
+			h.mqtt.Deliver(mqtt.HAStatusTopic, "online")
+			time.Sleep(500 * time.Microsecond)
+		}
+	}()
+	if err := h.ctrl.Start(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	<-births
+	h.ctrl.Stop(h.ctx)
+
+	for _, m := range macs {
+		if got := h.mqtt.LastPayload(mqtt.ForDevice(m).Availability); got != "online" {
+			t.Fatalf("%s availability ended as %q", m, got)
+		}
+		if got := h.mqtt.LastPayload(mqtt.ForDevice(m).ChannelState); got != "2" {
+			t.Fatalf("%s channel state ended as %q", m, got)
+		}
+	}
+	if h.mqtt.LastPayload(mqtt.ControllerOnlineState) != "5" {
+		t.Fatalf("online count ended as %q", h.mqtt.LastPayload(mqtt.ControllerOnlineState))
+	}
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jacobgad/dt241m-controller/internal/mqtt"
 )
@@ -16,6 +17,8 @@ type Published struct {
 }
 
 type FakeMQTT struct {
+	// Delay is applied to every Publish to give concurrent publishers a chance to interleave.
+	Delay         time.Duration
 	mu            sync.Mutex
 	published     []Published
 	subscriptions []string
@@ -30,6 +33,9 @@ func NewFakeMQTT(connected bool) *FakeMQTT {
 }
 
 func (f *FakeMQTT) Publish(_ context.Context, topic, payload string, retain bool) error {
+	if f.Delay > 0 {
+		time.Sleep(f.Delay)
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.published = append(f.published, Published{Topic: topic, Payload: payload, Retain: retain})
