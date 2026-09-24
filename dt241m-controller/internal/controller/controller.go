@@ -1,3 +1,6 @@
+// Package controller orchestrates the add-on: discovery and polling of DT241M units,
+// the per-receiver write queue with identity verification, and everything that is
+// published to Home Assistant over MQTT.
 package controller
 
 import (
@@ -10,9 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/jacobgad/dt241m-controller/internal/cidr"
 	"github.com/jacobgad/dt241m-controller/internal/config"
-	"github.com/jacobgad/dt241m-controller/internal/discovery"
 	"github.com/jacobgad/dt241m-controller/internal/dt241m"
 	"github.com/jacobgad/dt241m-controller/internal/mac"
 	"github.com/jacobgad/dt241m-controller/internal/mqtt"
@@ -20,6 +21,7 @@ import (
 	"github.com/jacobgad/dt241m-controller/internal/store"
 )
 
+// Deps wires a Controller; zero values for Now and the readback policy pick production defaults.
 type Deps struct {
 	Client           dt241m.Client
 	MQTT             mqtt.Connection
@@ -32,30 +34,59 @@ type Deps struct {
 	ReadbackDelay    time.Duration
 }
 
+// Status is the result class of a receiver channel change.
 type Status string
 
+// Channel change statuses.
 const (
 	StatusMatched  Status = "matched"
 	StatusMismatch Status = "mismatch"
 	StatusFailed   Status = "failed"
 )
 
+// WriteStatus records what the device said about the write itself, independent of readback.
+type WriteStatus string
+
+// Write acknowledgement states.
+const (
+	WriteAccepted  WriteStatus = "accepted"
+	WriteRejected  WriteStatus = "rejected"
+	WriteAmbiguous WriteStatus = "ambiguous"
+)
+
+// FailureReason explains a StatusFailed outcome or a rejected request.
+type FailureReason string
+
+// Failure reasons.
+const (
+	ReasonDeviceNotLocated FailureReason = "device_not_located"
+	ReasonNotAReceiver     FailureReason = "not_a_receiver"
+	ReasonWriteRejected    FailureReason = "write_rejected"
+	ReasonInvalidChannel   FailureReason = "invalid_channel"
+	ReasonUnknownDevice    FailureReason = "unknown_device"
+	ReasonShuttingDown     FailureReason = "shutting_down"
+)
+
+// Outcome is the fully observed result of a channel change: what was asked, what the
+// device acknowledged, and what it reported afterwards.
 type Outcome struct {
-	Status        Status
-	MAC           string
-	IP            string
-	Requested     int
-	Reported      *int
-	Reason        string
-	WriteAccepted string
+	Status    Status
+	MAC       string
+	IP        string
+	Requested int
+	Reported  *int
+	Reason    FailureReason
+	Write     WriteStatus
 }
 
+// Rejected is returned when a request is refused before anything is sent.
 type Rejected struct {
-	Reason string
+	Reason FailureReason
 }
 
-func (r *Rejected) Error() string { return "channel change rejected: " + r.Reason }
+func (r *Rejected) Error() string { return "channel change rejected: " + string(r.Reason) }
 
+// RenameOutcome reports a Name entity update.
 type RenameOutcome struct {
 	Renamed bool
 	MAC     string
@@ -63,8 +94,14 @@ type RenameOutcome struct {
 	Reason  string
 }
 
-const publishTimeout = 5 * time.Second
+const (
+	publishTimeout     = 5 * time.Second
+	mqttStartupWait    = 10 * time.Second
+	defaultReadbacks   = 3
+	defaultReadbackGap = 400 * time.Millisecond
+)
 
+// Controller is the add-on's long-lived core. Create it with New and drive it with Start/Stop.
 type Controller struct {
 	Registry *registry.Registry
 
@@ -78,7 +115,8 @@ type Controller struct {
 	readbackAttempts int
 	readbackDelay    time.Duration
 
-	queue *keyedQueue
+	queue    *keyedQueue
+	inflight sync.WaitGroup
 
 	discoveryMu   sync.Mutex
 	discoveryDone chan struct{}
@@ -87,13 +125,15 @@ type Controller struct {
 	countsMu   sync.Mutex
 	lastCounts *registry.Counts
 
-	stopping   atomic.Bool
-	started    atomic.Bool
-	baseCtx    context.Context
-	cancelBase context.CancelFunc
-	pollDone   chan struct{}
+	stopping    atomic.Bool
+	started     atomic.Bool
+	pollStarted atomic.Bool
+	baseCtx     context.Context
+	cancelBase  context.CancelFunc
+	pollDone    chan struct{}
 }
 
+// New wires the controller to its MQTT connection; nothing talks to hardware until Start.
 func New(deps Deps) *Controller {
 	c := &Controller{
 		Registry:         registry.New(),
@@ -107,62 +147,80 @@ func New(deps Deps) *Controller {
 		readbackAttempts: deps.ReadbackAttempts,
 		readbackDelay:    deps.ReadbackDelay,
 		queue:            newKeyedQueue(),
+		pollDone:         make(chan struct{}),
 	}
 	if c.now == nil {
 		c.now = time.Now
 	}
 	if c.readbackAttempts <= 0 {
-		c.readbackAttempts = 3
-		c.readbackDelay = 400 * time.Millisecond
+		c.readbackAttempts = defaultReadbacks
+		c.readbackDelay = defaultReadbackGap
 	}
 	c.baseCtx, c.cancelBase = context.WithCancel(context.Background())
 
 	c.mqtt.OnMessage(mqtt.NewRouter(mqtt.Actions{
 		ChannelCommand: func(m string, channel int) {
-			if _, err := c.RequestChannelChange(c.baseCtx, m, channel); err != nil {
+			if err := c.EnqueueChannelChange(m, channel); err != nil {
 				c.log.Error("operation_failed", "mac", m, "requestedChannel", channel, "error", err.Error())
 			}
 		},
-		NameCommand:         func(m, raw string) { c.Rename(c.baseCtx, m, raw) },
-		RescanRequested:     func() { c.RunDiscovery(c.baseCtx, "manual_rescan") },
-		HomeAssistantOnline: func() { c.PublishEverything(c.baseCtx) },
+		NameCommand:         func(m, raw string) { c.background(func() { c.Rename(c.baseCtx, m, raw) }) },
+		RescanRequested:     func() { c.background(func() { c.RunDiscovery(c.baseCtx, "manual_rescan") }) },
+		HomeAssistantOnline: func() { c.background(func() { c.PublishEverything(c.baseCtx) }) },
 	}, c.log))
 	c.mqtt.OnConnect(func() { c.onMQTTConnected(c.baseCtx) })
 	return c
 }
 
+func (c *Controller) background(fn func()) {
+	c.inflight.Add(1)
+	go func() {
+		defer c.inflight.Done()
+		fn()
+	}()
+}
+
+// Start loads the persisted inventory, publishes it as unavailable, re-probes last-known
+// addresses, runs the first full scan and begins polling. It returns once the scan is done.
 func (c *Controller) Start(ctx context.Context) error {
 	if !c.started.CompareAndSwap(false, true) {
 		return nil
 	}
 	c.log.Info("controller_started",
-		"scanRanges", strings.Join(cidr.Texts(c.opts.ScanRanges), ","),
+		"scanRanges", strings.Join(c.opts.ScanRangeTexts(), ","),
 		"pollInterval", c.opts.PollInterval.String(),
 		"probeTimeout", c.opts.ProbeTimeout.String(),
 		"discoveryConcurrency", c.opts.DiscoveryConcurrency)
 
-	persisted, err := c.store.LoadAll()
+	persisted, err := c.store.LoadAll(ctx)
 	if err != nil {
 		return fmt.Errorf("load adapters: %w", err)
 	}
 	c.Registry.Hydrate(persisted)
 	c.log.Info("adapters_loaded", "count", len(persisted))
 
-	if c.mqtt.Connected() {
+	waitCtx, cancel := context.WithTimeout(ctx, mqttStartupWait)
+	err = c.mqtt.AwaitConnection(waitCtx)
+	cancel()
+	if err != nil {
+		c.log.Warn("mqtt_not_ready", "detail", "continuing; state will be republished on connect")
+	} else {
 		c.onMQTTConnected(ctx)
 	}
+
 	c.ProbeKnownAddresses(ctx)
 	c.RunDiscovery(ctx, "startup")
 
-	c.pollDone = make(chan struct{})
+	c.pollStarted.Store(true)
 	go c.pollLoop()
 	return nil
 }
 
+// Stop halts polling, waits for in-flight work, publishes the controller offline and closes MQTT.
 func (c *Controller) Stop(ctx context.Context) {
 	c.stopping.Store(true)
 	c.cancelBase()
-	if c.pollDone != nil {
+	if c.pollStarted.Load() {
 		<-c.pollDone
 	}
 	c.discoveryMu.Lock()
@@ -171,6 +229,8 @@ func (c *Controller) Stop(ctx context.Context) {
 	if done != nil {
 		<-done
 	}
+	c.queue.wait()
+	c.inflight.Wait()
 	if c.mqtt.Connected() {
 		if err := c.mqtt.Publish(ctx, mqtt.ControllerAvailability, mqtt.PayloadOffline, true); err != nil {
 			c.log.Warn("operation_failed", "operation", "publish_offline", "error", err.Error())
@@ -182,8 +242,10 @@ func (c *Controller) Stop(ctx context.Context) {
 	c.log.Info("controller_stopped")
 }
 
+// DiscoveryRunCount is the number of full scans started so far.
 func (c *Controller) DiscoveryRunCount() int { return int(c.discoveryRuns.Load()) }
 
+// DiscoveryRunning reports whether a full scan is in progress.
 func (c *Controller) DiscoveryRunning() bool {
 	c.discoveryMu.Lock()
 	defer c.discoveryMu.Unlock()
@@ -211,6 +273,8 @@ func (c *Controller) onMQTTConnected(ctx context.Context) {
 	c.PublishEverything(ctx)
 }
 
+// PublishEverything re-sends availability, discovery configs and last known state for
+// the controller and every adapter. It never contacts the hardware.
 func (c *Controller) PublishEverything(ctx context.Context) {
 	c.publish(ctx, mqtt.ControllerAvailability, mqtt.PayloadOnline)
 	for _, m := range mqtt.ControllerMessages(c.origin) {
@@ -225,7 +289,8 @@ func (c *Controller) PublishEverything(ctx context.Context) {
 	c.publishCounts(ctx, true)
 }
 
-// RunDiscovery scans the configured ranges; a call made while a scan is running waits for that scan instead of starting another.
+// RunDiscovery scans every configured range. If a scan is already running the call
+// waits for it rather than starting a second one.
 func (c *Controller) RunDiscovery(ctx context.Context, reason string) {
 	c.discoveryMu.Lock()
 	if c.discoveryDone != nil {
@@ -252,15 +317,15 @@ func (c *Controller) RunDiscovery(ctx context.Context, reason string) {
 }
 
 func (c *Controller) executeDiscovery(ctx context.Context, reason string) {
-	targets := cidr.ExpandAll(c.opts.ScanRanges)
+	targets := c.opts.ScanHosts()
 	c.discoveryRuns.Add(1)
-	c.log.Info("discovery_started", "reason", reason, "addresses", len(targets), "ranges", strings.Join(cidr.Texts(c.opts.ScanRanges), ","))
+	c.log.Info("discovery_started", "reason", reason, "addresses", len(targets), "ranges", strings.Join(c.opts.ScanRangeTexts(), ","))
 	started := c.now()
 	var found atomic.Int64
-	discovery.Probe(ctx, c.client, targets, discovery.Options{
+	Probe(ctx, c.client, targets, ProbeOptions{
 		Concurrency: c.opts.DiscoveryConcurrency,
 		Timeout:     c.opts.ProbeTimeout,
-		OnHit: func(hit discovery.Hit) {
+		OnHit: func(hit Hit) {
 			found.Add(1)
 			c.applyObservation(ctx, hit.IP, hit.Info)
 		},
@@ -269,6 +334,7 @@ func (c *Controller) executeDiscovery(ctx context.Context, reason string) {
 	c.log.Info("discovery_completed", "reason", reason, "found", found.Load(), "known", c.Registry.Counts().Known, "duration", c.now().Sub(started).String())
 }
 
+// ProbeKnownAddresses re-checks every persisted adapter at its last-known IP.
 func (c *Controller) ProbeKnownAddresses(ctx context.Context) {
 	var candidates []registry.Adapter
 	for _, a := range c.Registry.All() {
@@ -285,6 +351,8 @@ func (c *Controller) ProbeKnownAddresses(ctx context.Context) {
 	})
 }
 
+// PollKnownDevices observes every adapter once. It only reads; a device that has gone
+// quiet is marked offline and, if it was online before, triggers one full rescan.
 func (c *Controller) PollKnownDevices(ctx context.Context) {
 	if c.stopping.Load() {
 		return
@@ -304,16 +372,11 @@ func (c *Controller) PollKnownDevices(ctx context.Context) {
 		case observeOtherDevice:
 			needsRediscovery.Store(true)
 			return
-		}
-		wasOnline := a.Online
-		if offline, changed := c.Registry.MarkOffline(a.MAC); changed {
-			c.log.Warn("adapter_offline", "mac", a.MAC, "ip", a.IP, "role", a.Role)
-			c.publishAdapterAvailability(ctx, offline)
-			c.publishCounts(ctx, false)
-			c.persist(offline)
-		}
-		if wasOnline {
-			needsRediscovery.Store(true)
+		case observeUnreachable:
+			c.markOffline(ctx, a.MAC)
+			if a.Online {
+				needsRediscovery.Store(true)
+			}
 		}
 	})
 	if needsRediscovery.Load() && !c.stopping.Load() {
@@ -336,68 +399,91 @@ func (c *Controller) forEachAdapter(adapters []registry.Adapter, fn func(registr
 	wg.Wait()
 }
 
+// EnqueueChannelChange validates a request and claims its place in the receiver's
+// queue before returning, so calls made in order are executed in order.
+func (c *Controller) EnqueueChannelChange(macAddr string, channel int) error {
+	_, err := c.enqueueChannelChange(macAddr, channel)
+	return err
+}
+
+// RequestChannelChange is EnqueueChannelChange followed by waiting for the outcome.
 func (c *Controller) RequestChannelChange(ctx context.Context, macAddr string, channel int) (Outcome, error) {
+	result, err := c.enqueueChannelChange(macAddr, channel)
+	if err != nil {
+		return Outcome{}, err
+	}
+	select {
+	case outcome := <-result:
+		return outcome, nil
+	case <-ctx.Done():
+		return Outcome{}, ctx.Err()
+	}
+}
+
+func (c *Controller) enqueueChannelChange(macAddr string, channel int) (<-chan Outcome, error) {
 	if c.stopping.Load() {
-		return Outcome{}, &Rejected{Reason: "shutting_down"}
+		return nil, &Rejected{Reason: ReasonShuttingDown}
 	}
 	if !dt241m.ValidChannel(channel) {
-		return Outcome{}, &Rejected{Reason: "invalid_channel"}
+		return nil, &Rejected{Reason: ReasonInvalidChannel}
 	}
-	normalized := mac.Normalize(macAddr)
-	adapter, ok := c.Registry.Get(normalized)
+	adapter, ok := c.Registry.Lookup(mac.Normalize(macAddr))
 	if !ok {
 		c.log.Warn("channel_command_unknown_device", "mac", macAddr)
-		return Outcome{}, &Rejected{Reason: "unknown_device"}
+		return nil, &Rejected{Reason: ReasonUnknownDevice}
 	}
 	if adapter.Role != dt241m.RoleReceiver {
 		c.log.Warn("channel_command_refused_role", "mac", adapter.MAC, "role", adapter.Role, "requestedChannel", channel)
-		return Outcome{}, &Rejected{Reason: "not_a_receiver"}
+		return nil, &Rejected{Reason: ReasonNotAReceiver}
 	}
 	c.log.Info("channel_change_requested", "mac", adapter.MAC, "ip", adapter.IP, "requestedChannel", channel)
-	var outcome Outcome
-	c.queue.run(adapter.MAC, func() {
-		outcome = c.executeChannelChange(ctx, adapter.MAC, channel)
+	result := make(chan Outcome, 1)
+	c.queue.enqueue(adapter.MAC, func() {
+		result <- c.executeChannelChange(c.baseCtx, adapter.MAC, channel)
 	})
-	return outcome, nil
+	return result, nil
 }
 
 func (c *Controller) executeChannelChange(ctx context.Context, macAddr string, requested int) Outcome {
 	ip, ok := c.resolveVerifiedIP(ctx, macAddr)
 	if !ok {
-		c.log.Error("operation_failed", "mac", macAddr, "requestedChannel", requested, "reason", "device_not_located")
-		return Outcome{Status: StatusFailed, MAC: macAddr, Requested: requested, Reason: "device_not_located"}
+		c.log.Error("operation_failed", "mac", macAddr, "requestedChannel", requested, "reason", ReasonDeviceNotLocated)
+		return Outcome{Status: StatusFailed, MAC: macAddr, Requested: requested, Reason: ReasonDeviceNotLocated}
 	}
-	adapter, _ := c.Registry.Get(macAddr)
+	adapter, _ := c.Registry.Lookup(macAddr)
 	if adapter.Role != dt241m.RoleReceiver {
 		c.log.Warn("channel_command_refused_role", "mac", macAddr, "role", adapter.Role, "requestedChannel", requested)
-		return Outcome{Status: StatusFailed, MAC: macAddr, IP: ip, Requested: requested, Reason: "not_a_receiver", Reported: adapter.Channel}
+		return Outcome{Status: StatusFailed, MAC: macAddr, IP: ip, Requested: requested, Reason: ReasonNotAReceiver, Reported: adapter.Channel}
 	}
 
-	writeAccepted := "true"
+	write := WriteAccepted
 	writeCtx, cancel := context.WithTimeout(ctx, c.opts.ProbeTimeout)
 	err := c.client.SetChannel(writeCtx, ip, requested)
 	cancel()
 	switch {
 	case err == nil:
 		c.log.Info("channel_change_acknowledged", "mac", macAddr, "ip", ip, "requestedChannel", requested)
-	case dt241m.IsCode(err, dt241m.CodeTimeout):
-		writeAccepted = "unknown"
-		c.log.Warn("channel_change_ambiguous", "mac", macAddr, "ip", ip, "requestedChannel", requested)
+	case dt241m.Ambiguous(err):
+		write = WriteAmbiguous
+		c.log.Warn("channel_change_ambiguous", "mac", macAddr, "ip", ip, "requestedChannel", requested, "error", err.Error())
 	default:
-		writeAccepted = "false"
+		write = WriteRejected
 		c.log.Error("operation_failed", "mac", macAddr, "ip", ip, "requestedChannel", requested, "error", err.Error())
 	}
 
 	reported := c.readbackChannel(ctx, macAddr, ip, requested)
-	if writeAccepted == "false" {
-		return Outcome{Status: StatusFailed, MAC: macAddr, IP: ip, Requested: requested, Reason: "write_rejected", Reported: reported, WriteAccepted: writeAccepted}
-	}
-	if reported != nil && *reported == requested {
+	outcome := Outcome{MAC: macAddr, IP: ip, Requested: requested, Reported: reported, Write: write}
+	switch {
+	case write == WriteRejected:
+		outcome.Status, outcome.Reason = StatusFailed, ReasonWriteRejected
+	case reported != nil && *reported == requested:
+		outcome.Status = StatusMatched
 		c.log.Info("channel_readback_matched", "mac", macAddr, "ip", ip, "requestedChannel", requested, "reportedChannel", *reported)
-		return Outcome{Status: StatusMatched, MAC: macAddr, IP: ip, Requested: requested, Reported: reported, WriteAccepted: writeAccepted}
+	default:
+		outcome.Status = StatusMismatch
+		c.log.Warn("channel_readback_mismatch", "mac", macAddr, "ip", ip, "requestedChannel", requested, "reportedChannel", intOrNil(reported), "write", write)
 	}
-	c.log.Warn("channel_readback_mismatch", "mac", macAddr, "ip", ip, "requestedChannel", requested, "reportedChannel", intOrNil(reported), "writeAccepted", writeAccepted)
-	return Outcome{Status: StatusMismatch, MAC: macAddr, IP: ip, Requested: requested, Reported: reported, WriteAccepted: writeAccepted}
+	return outcome
 }
 
 func (c *Controller) readbackChannel(ctx context.Context, macAddr, ip string, requested int) *int {
@@ -432,8 +518,10 @@ func (c *Controller) readbackChannel(ctx context.Context, macAddr, ip string, re
 	return reported
 }
 
+// resolveVerifiedIP returns an address that has just been proven to belong to macAddr,
+// rediscovering the device if its last-known address is silent or answers as someone else.
 func (c *Controller) resolveVerifiedIP(ctx context.Context, macAddr string) (string, bool) {
-	adapter, ok := c.Registry.Get(macAddr)
+	adapter, ok := c.Registry.Lookup(macAddr)
 	if !ok {
 		return "", false
 	}
@@ -443,17 +531,12 @@ func (c *Controller) resolveVerifiedIP(ctx context.Context, macAddr string) (str
 			return adapter.IP, true
 		}
 		if outcome == observeUnreachable {
-			if offline, changed := c.Registry.MarkOffline(macAddr); changed {
-				c.log.Warn("adapter_offline", "mac", macAddr, "ip", adapter.IP, "role", adapter.Role)
-				c.publishAdapterAvailability(ctx, offline)
-				c.publishCounts(ctx, false)
-				c.persist(offline)
-			}
+			c.markOffline(ctx, macAddr)
 		}
 		c.log.Info("rediscovery_for_write", "mac", macAddr, "staleIp", adapter.IP, "reason", outcome)
 	}
 	c.RunDiscovery(ctx, "locate_"+macAddr)
-	located, ok := c.Registry.Get(macAddr)
+	located, ok := c.Registry.Lookup(macAddr)
 	if ok && located.Online {
 		return located.IP, true
 	}
@@ -486,6 +569,17 @@ func (c *Controller) observeAt(ctx context.Context, ip, expectedMAC string) obse
 	return observeVerified
 }
 
+func (c *Controller) markOffline(ctx context.Context, macAddr string) {
+	offline, changed := c.Registry.MarkOffline(macAddr)
+	if !changed {
+		return
+	}
+	c.log.Warn("adapter_offline", "mac", offline.MAC, "ip", offline.IP, "role", offline.Role)
+	c.publishAdapterAvailability(ctx, offline)
+	c.publishCounts(ctx, false)
+	c.persist(ctx, offline)
+}
+
 func (c *Controller) applyObservation(ctx context.Context, ip string, info *dt241m.DeviceInfo) {
 	obs, ok := c.Registry.RecordObservation(ip, info, c.now())
 	if !ok {
@@ -499,7 +593,7 @@ func (c *Controller) applyObservation(ctx context.Context, ip string, info *dt24
 	}
 	if obs.Created {
 		c.log.Info("adapter_discovered", "mac", a.MAC, "ip", ip, "role", a.Role, "reportedName", strOrNil(a.ReportedName), "channel", intOrNil(a.Channel))
-		c.persist(a)
+		c.persist(ctx, a)
 		c.publishAdapterDiscovery(ctx, a)
 		c.publishAdapterAvailability(ctx, a)
 		c.publishAdapterName(ctx, a)
@@ -531,16 +625,17 @@ func (c *Controller) applyObservation(ctx context.Context, ip string, info *dt24
 		c.publishCounts(ctx, false)
 	}
 	if obs.IPChanged || obs.ChannelChanged || obs.MetadataChanged || obs.CameOnline {
-		c.persist(a)
+		c.persist(ctx, a)
 	}
 }
 
+// Rename stores a user-chosen name for an adapter and republishes its discovery. The
+// hardware is never contacted; reportedName is left untouched.
 func (c *Controller) Rename(ctx context.Context, macAddr, raw string) RenameOutcome {
-	normalized := mac.Normalize(macAddr)
-	adapter, ok := c.Registry.Get(normalized)
+	adapter, ok := c.Registry.Lookup(mac.Normalize(macAddr))
 	if !ok {
 		c.log.Warn("rename_unknown_device", "mac", macAddr)
-		return RenameOutcome{MAC: macAddr, Reason: "unknown_device"}
+		return RenameOutcome{MAC: macAddr, Reason: string(ReasonUnknownDevice)}
 	}
 	name, err := registry.ValidateName(raw)
 	if err != nil {
@@ -550,7 +645,7 @@ func (c *Controller) Rename(ctx context.Context, macAddr, raw string) RenameOutc
 	}
 	previous := adapter.Name
 	updated, _ := c.Registry.SetName(adapter.MAC, name)
-	if err := c.store.SetName(adapter.MAC, name); err != nil {
+	if err := c.store.SetName(ctx, adapter.MAC, name); err != nil {
 		c.log.Error("persist_failed", "mac", adapter.MAC, "error", err.Error())
 	}
 	c.log.Info("adapter_renamed", "mac", adapter.MAC, "previousName", strOrNil(previous), "name", strOrNil(name), "reportedName", strOrNil(adapter.ReportedName))
@@ -559,8 +654,8 @@ func (c *Controller) Rename(ctx context.Context, macAddr, raw string) RenameOutc
 	return RenameOutcome{Renamed: true, MAC: adapter.MAC, Name: name}
 }
 
-func (c *Controller) persist(a registry.Adapter) {
-	if err := c.store.Save(a); err != nil {
+func (c *Controller) persist(ctx context.Context, a registry.Adapter) {
+	if err := c.store.Save(context.WithoutCancel(ctx), a); err != nil {
 		c.log.Error("persist_failed", "mac", a.MAC, "error", err.Error())
 	}
 }

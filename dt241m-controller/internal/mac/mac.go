@@ -1,3 +1,4 @@
+// Package mac normalises DT241M MAC addresses, the sole identity used across the add-on.
 package mac
 
 import (
@@ -8,7 +9,8 @@ import (
 var hex12 = regexp.MustCompile(`^[0-9a-f]{12}$`)
 var nonHex = regexp.MustCompile(`[^0-9a-f]`)
 
-// Normalize returns the lower-case colon-separated form of raw, or "" if raw is not a MAC address.
+// Normalize accepts any common separator or none and returns the canonical
+// lower-case colon form, or "" when raw is not a MAC address.
 func Normalize(raw string) string {
 	compact := nonHex.ReplaceAllString(strings.ToLower(strings.TrimSpace(raw)), "")
 	if !hex12.MatchString(compact) {
@@ -21,14 +23,12 @@ func Normalize(raw string) string {
 	return strings.Join(parts, ":")
 }
 
+// Compact strips the separators for use in topics and identifiers.
 func Compact(normalized string) string {
 	return strings.ReplaceAll(normalized, ":", "")
 }
 
-func FromCompact(compact string) string {
-	return Normalize(compact)
-}
-
+// AdapterID is the stable Home Assistant object-id prefix for a MAC.
 func AdapterID(normalized string) string {
 	return "dt241m_" + Compact(normalized)
 }

@@ -65,7 +65,7 @@ func TestRegistryDisplacesButDoesNotMutateOldIdentity(t *testing.T) {
 	if !obs.Created || obs.Adapter.MAC != testutil.TxFixtureMAC || obs.Displaced == nil || obs.Displaced.MAC != testutil.RxFixtureMAC {
 		t.Fatalf("obs %+v", obs)
 	}
-	old, _ := r.Get(testutil.RxFixtureMAC)
+	old, _ := r.Lookup(testutil.RxFixtureMAC)
 	if old.ID != "dt241m_fc19286cd6d8" || old.Role != dt241m.RoleReceiver || old.Online || len(r.All()) != 2 {
 		t.Fatalf("old %+v", old)
 	}
@@ -95,7 +95,7 @@ func TestRegistryTransitionsAndCounts(t *testing.T) {
 func TestRegistryRoleChangeAndNames(t *testing.T) {
 	r := registry.New()
 	r.RecordObservation("192.168.1.20", info(t, "rx-info-initial-channel-2", map[string]any{"product_name": nil, "model": nil}), time.Now())
-	a, _ := r.Get(testutil.RxFixtureMAC)
+	a, _ := r.Lookup(testutil.RxFixtureMAC)
 	if a.Role != dt241m.RoleUnknown {
 		t.Fatal("expected unknown")
 	}
@@ -109,7 +109,7 @@ func TestRegistryRoleChangeAndNames(t *testing.T) {
 		t.Fatal("display name")
 	}
 	r.RecordObservation("192.168.1.20", info(t, "rx-info-initial-channel-2", map[string]any{"dev_name": "CHANGED"}), time.Now())
-	a, _ = r.Get(testutil.RxFixtureMAC)
+	a, _ = r.Lookup(testutil.RxFixtureMAC)
 	if *a.Name != "Main Projector" || *a.ReportedName != "CHANGED" {
 		t.Fatal("observation overwrote name")
 	}

@@ -14,10 +14,11 @@ import (
 	"github.com/jacobgad/dt241m-controller/internal/config"
 )
 
+// PahoOptions configures the production Connection.
 type PahoOptions struct {
 	Settings config.MQTT
 	ClientID string
-	Will     struct{ Topic, Payload string }
+	Will     Will
 	Log      *slog.Logger
 }
 
@@ -31,8 +32,28 @@ type pahoConnection struct {
 	onConnect []func()
 }
 
-// Connect starts a self-reconnecting session that lives until Close; ctx only bounds the initial setup.
+// Connect starts a self-reconnecting MQTT 5 session that lives until Close is called;
+// ctx only bounds the initial setup, otherwise cancelling it would tear the session
+// down with a clean DISCONNECT and suppress the Last Will.
 func Connect(ctx context.Context, opts PahoOptions) (Connection, error) {
+	pc := &pahoConnection{log: opts.Log}
+	cfg, err := clientConfig(opts, pc)
+	if err != nil {
+		return nil, err
+	}
+	opts.Log.Info("mqtt_connecting", "host", opts.Settings.Host, "port", opts.Settings.Port, "tls", opts.Settings.TLS)
+	sessionCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	cm, err := autopaho.NewConnection(sessionCtx, cfg)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	pc.cm = cm
+	pc.cancel = cancel
+	return pc, nil
+}
+
+func clientConfig(opts PahoOptions, pc *pahoConnection) (autopaho.ClientConfig, error) {
 	scheme := "mqtt"
 	var tlsCfg *tls.Config
 	if opts.Settings.TLS {
@@ -41,18 +62,19 @@ func Connect(ctx context.Context, opts PahoOptions) (Connection, error) {
 	}
 	serverURL, err := url.Parse(fmt.Sprintf("%s://%s:%d", scheme, opts.Settings.Host, opts.Settings.Port))
 	if err != nil {
-		return nil, err
+		return autopaho.ClientConfig{}, err
 	}
-	pc := &pahoConnection{log: opts.Log}
-
 	cfg := autopaho.ClientConfig{
 		ServerUrls:                    []*url.URL{serverURL},
 		TlsCfg:                        tlsCfg,
 		KeepAlive:                     30,
 		CleanStartOnInitialConnection: true,
 		SessionExpiryInterval:         0,
-		ConnectRetryDelay:             5 * time.Second,
+		ReconnectBackoff:              autopaho.NewExponentialBackoff(2*time.Second, 60*time.Second, 5*time.Second, 2),
 		ConnectTimeout:                10 * time.Second,
+		ConnectUsername:               opts.Settings.Username,
+		ConnectPassword:               []byte(opts.Settings.Password),
+		WillMessage:                   &paho.WillMessage{Topic: opts.Will.Topic, Payload: []byte(opts.Will.Payload), QoS: 1, Retain: true},
 		OnConnectionUp: func(_ *autopaho.ConnectionManager, _ *paho.Connack) {
 			opts.Log.Info("mqtt_connected", "host", opts.Settings.Host, "port", opts.Settings.Port)
 			pc.setConnected(true)
@@ -81,21 +103,10 @@ func Connect(ctx context.Context, opts PahoOptions) (Connection, error) {
 			OnClientError: func(err error) { opts.Log.Warn("mqtt_client_error", "error", err.Error()) },
 		},
 	}
-	if opts.Settings.Username != "" || opts.Settings.Password != "" {
-		cfg.SetUsernamePassword(opts.Settings.Username, []byte(opts.Settings.Password))
+	if opts.Settings.Password == "" {
+		cfg.ConnectPassword = nil
 	}
-	cfg.SetWillMessage(opts.Will.Topic, []byte(opts.Will.Payload), 1, true)
-
-	opts.Log.Info("mqtt_connecting", "host", opts.Settings.Host, "port", opts.Settings.Port, "tls", opts.Settings.TLS)
-	sessionCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	cm, err := autopaho.NewConnection(sessionCtx, cfg)
-	if err != nil {
-		cancel()
-		return nil, err
-	}
-	pc.cm = cm
-	pc.cancel = cancel
-	return pc, nil
+	return cfg, nil
 }
 
 func (p *pahoConnection) setConnected(v bool) {
@@ -149,6 +160,10 @@ func (p *pahoConnection) Connected() bool {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.connected
+}
+
+func (p *pahoConnection) AwaitConnection(ctx context.Context) error {
+	return p.cm.AwaitConnection(ctx)
 }
 
 func (p *pahoConnection) Close(ctx context.Context) error {

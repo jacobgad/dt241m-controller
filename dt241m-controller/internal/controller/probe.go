@@ -1,4 +1,4 @@
-package discovery
+package controller
 
 import (
 	"context"
@@ -8,20 +8,23 @@ import (
 	"github.com/jacobgad/dt241m-controller/internal/dt241m"
 )
 
+// Hit is a device that answered a probe.
 type Hit struct {
 	IP   string
 	Info *dt241m.DeviceInfo
 }
 
-type Options struct {
+// ProbeOptions bounds a sweep and exposes hooks for observation.
+type ProbeOptions struct {
 	Concurrency  int
 	Timeout      time.Duration
 	OnHit        func(Hit)
 	OnProbeStart func(ip string, active int)
 }
 
-// Probe queries every address with bounded concurrency; unreachable addresses are simply skipped.
-func Probe(ctx context.Context, client dt241m.Client, ips []string, opts Options) []Hit {
+// Probe sends get_device_info_proav to every address with bounded concurrency.
+// Addresses that do not answer are not errors; they are simply absent from the result.
+func Probe(ctx context.Context, client dt241m.Client, ips []string, opts ProbeOptions) []Hit {
 	var (
 		mu     sync.Mutex
 		hits   []Hit
@@ -46,10 +49,11 @@ func Probe(ctx context.Context, client dt241m.Client, ips []string, opts Options
 				}
 				mu.Lock()
 				active++
-				if opts.OnProbeStart != nil {
-					opts.OnProbeStart(ip, active)
-				}
+				current := active
 				mu.Unlock()
+				if opts.OnProbeStart != nil {
+					opts.OnProbeStart(ip, current)
+				}
 				probeCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
 				info, err := client.GetDeviceInfo(probeCtx, ip)
 				cancel()

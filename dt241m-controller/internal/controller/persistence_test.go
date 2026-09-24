@@ -1,6 +1,7 @@
 package controller_test
 
 import (
+	"context"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,7 +13,7 @@ import (
 
 func openStore(t *testing.T, name string) *store.SQLite {
 	t.Helper()
-	s, err := store.Open(filepath.Join(t.TempDir(), name))
+	s, err := store.Open(context.Background(), filepath.Join(t.TempDir(), name))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -22,7 +23,7 @@ func openStore(t *testing.T, name string) *store.SQLite {
 
 func openStoreAt(t *testing.T, path string) *store.SQLite {
 	t.Helper()
-	s, err := store.Open(path)
+	s, err := store.Open(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,13 +32,13 @@ func openStoreAt(t *testing.T, path string) *store.SQLite {
 
 func TestSQLiteStoreRoundTrip(t *testing.T) {
 	s := openStore(t, "a.sqlite")
-	if rows, _ := s.LoadAll(); len(rows) != 0 {
+	if rows, _ := s.LoadAll(context.Background()); len(rows) != 0 {
 		t.Fatal("expected empty store")
 	}
 	h := newHarness(t, harnessOptions{store: s})
 	rx(testutil.RxFixtureMAC, rxIP, h.net)
 	h.discover(t)
-	rows, err := s.LoadAll()
+	rows, err := s.LoadAll(context.Background())
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("rows %v err %v", rows, err)
 	}
@@ -57,7 +58,7 @@ func TestReopeningDatabaseIsIdempotent(t *testing.T) {
 	first.Close()
 	second := openStoreAt(t, path)
 	defer second.Close()
-	if rows, err := second.LoadAll(); err != nil || len(rows) != 0 {
+	if rows, err := second.LoadAll(context.Background()); err != nil || len(rows) != 0 {
 		t.Fatalf("rows %v err %v", rows, err)
 	}
 }
@@ -84,7 +85,7 @@ func TestOfflineAdapterSurvivesRestart(t *testing.T) {
 	}
 	defer after.ctrl.Stop(after.ctx)
 
-	a, ok := after.ctrl.Registry.Get(testutil.RxFixtureMAC)
+	a, ok := after.ctrl.Registry.Lookup(testutil.RxFixtureMAC)
 	if !ok || a.Online || a.IP != rxIP || *a.Channel != 2 {
 		t.Fatalf("adapter %+v ok=%v", a, ok)
 	}
@@ -96,7 +97,7 @@ func TestOfflineAdapterSurvivesRestart(t *testing.T) {
 		after.mqtt.LastPayload(mqtt.ControllerKnownState) != "1" || after.mqtt.LastPayload(mqtt.ControllerOnlineState) != "0" {
 		t.Fatal("offline adapter not published correctly")
 	}
-	if rows, _ := second.LoadAll(); len(rows) != 1 {
+	if rows, _ := second.LoadAll(context.Background()); len(rows) != 1 {
 		t.Fatal("adapter was deleted")
 	}
 	if len(net.AllWrites()) != 0 {
@@ -120,7 +121,7 @@ func TestRestartProbesLastKnownIPBeforeFullScan(t *testing.T) {
 	if reqs := net.Requests(); len(reqs) == 0 || reqs[0].IP != rxIP {
 		t.Fatal("last-known IP was not probed first")
 	}
-	a, _ := after.ctrl.Registry.Get(testutil.RxFixtureMAC)
+	a, _ := after.ctrl.Registry.Lookup(testutil.RxFixtureMAC)
 	availability := after.mqtt.PayloadsOn(mqtt.ForDevice(testutil.RxFixtureMAC).Availability)
 	if !a.Online || availability[0] != "offline" || availability[len(availability)-1] != "online" {
 		t.Fatalf("availability %v online=%v", availability, a.Online)
@@ -159,7 +160,7 @@ func TestNameSurvivesRestart(t *testing.T) {
 	after := newHarness(t, harnessOptions{store: s, net: net})
 	_ = after.ctrl.Start(after.ctx)
 	defer after.ctrl.Stop(after.ctx)
-	a, _ := after.ctrl.Registry.Get(testutil.RxFixtureMAC)
+	a, _ := after.ctrl.Registry.Lookup(testutil.RxFixtureMAC)
 	if a.Name == nil || *a.Name != "Main Projector" || *a.ReportedName != "ER02_286CD6D8" {
 		t.Fatalf("adapter %+v", a)
 	}
@@ -185,7 +186,7 @@ func TestDHCPMovePersistsOneRecordWithSameNameAndIdentity(t *testing.T) {
 	net.Move("192.168.1.2", "192.168.1.8")
 	h.ctrl.RunDiscovery(h.ctx, "dhcp")
 
-	rows, _ := s.LoadAll()
+	rows, _ := s.LoadAll(context.Background())
 	if len(rows) != 1 || rows[0].IP != "192.168.1.8" || *rows[0].Name != "Main Projector" {
 		t.Fatalf("rows %+v", rows)
 	}
@@ -217,11 +218,11 @@ func TestDiscoveryPreservesName(t *testing.T) {
 	d.SetTemplate("dev_name", "ER02_RENAMED_ON_DEVICE")
 	d.SetTemplate("version", "1.13471.999")
 	h.discover(t)
-	a, _ := h.ctrl.Registry.Get(testutil.RxFixtureMAC)
+	a, _ := h.ctrl.Registry.Lookup(testutil.RxFixtureMAC)
 	if *a.Name != "Main Projector" || *a.ReportedName != "ER02_RENAMED_ON_DEVICE" || *a.Firmware != "1.13471.999" {
 		t.Fatalf("adapter %+v", a)
 	}
-	rows, _ := h.store.LoadAll()
+	rows, _ := h.store.LoadAll(context.Background())
 	if *rows[0].Name != "Main Projector" || *rows[0].ReportedName != "ER02_RENAMED_ON_DEVICE" {
 		t.Fatal("store wrong")
 	}
@@ -260,7 +261,7 @@ func TestRenameKeepsIdentity(t *testing.T) {
 	if len(h.net.Requests()) != 0 {
 		t.Fatal("rename touched hardware")
 	}
-	rows, _ := h.store.LoadAll()
+	rows, _ := h.store.LoadAll(context.Background())
 	if rows[0].MAC != testutil.RxFixtureMAC || *rows[0].Name != "Auditorium Projector" {
 		t.Fatal("store wrong")
 	}
@@ -273,7 +274,7 @@ func TestNameValidationAndClearing(t *testing.T) {
 	nameTopic := mqtt.ForDevice(testutil.RxFixtureMAC).NameState
 
 	h.ctrl.Rename(h.ctx, testutil.RxFixtureMAC, "  Lobby TV  ")
-	a, _ := h.ctrl.Registry.Get(testutil.RxFixtureMAC)
+	a, _ := h.ctrl.Registry.Lookup(testutil.RxFixtureMAC)
 	if *a.Name != "Lobby TV" {
 		t.Fatal("not trimmed")
 	}
@@ -293,11 +294,11 @@ func TestNameValidationAndClearing(t *testing.T) {
 	if o := h.ctrl.Rename(h.ctx, testutil.RxFixtureMAC, "   "); !o.Renamed || o.Name != nil {
 		t.Fatalf("clear outcome %+v", o)
 	}
-	a, _ = h.ctrl.Registry.Get(testutil.RxFixtureMAC)
+	a, _ = h.ctrl.Registry.Lookup(testutil.RxFixtureMAC)
 	if a.Name != nil || h.mqtt.LastPayload(nameTopic) != "ER02_286CD6D8" {
 		t.Fatal("name not cleared")
 	}
-	rows, _ := h.store.LoadAll()
+	rows, _ := h.store.LoadAll(context.Background())
 	if rows[0].Name != nil {
 		t.Fatal("store not cleared")
 	}

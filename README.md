@@ -104,14 +104,17 @@ Full user documentation is in [`dt241m-controller/DOCS.md`](dt241m-controller/DO
 
 ## Development
 
-Requirements: Go ≥ 1.25, Docker (for image builds).
+Requirements: Go ≥ 1.25, [golangci-lint](https://golangci-lint.run) v2, Docker (for image builds).
 
 ```bash
 cd dt241m-controller
 go vet ./...
+golangci-lint run ./...
 go test -race ./...
-CGO_ENABLED=0 go build -o dt241m-controller ./cmd/dt241m-controller
+CGO_ENABLED=0 go build -o dt241m-controller .
 ```
+
+The code follows standard Go conventions: `gofmt`/`goimports` formatting, the linter set in `.golangci.yml` (staticcheck, revive, gosec, errcheck, …) must pass with zero issues, and every package and exported identifier carries a godoc comment. Other comments are kept to non-obvious *why* explanations.
 
 Run locally against any MQTT broker:
 
@@ -133,28 +136,29 @@ docker buildx build --platform linux/amd64 --build-arg BUILD_VERSION=2.0.0 -t dt
 docker buildx build --platform linux/arm64 --build-arg BUILD_VERSION=2.0.0 -t dt241m-controller:aarch64 --load .
 ```
 
-Database schema changes: append a statement to the `migrations` slice in `internal/store/store.go` and bump `schemaVersion`. Migrations are tracked with `PRAGMA user_version` and run automatically at startup; the schema is unchanged from 1.x so existing databases are reused as-is.
+Database schema changes: append a statement to the `migrations` slice in `internal/store/store.go` and bump `schemaVersion`. Migrations are tracked with `PRAGMA user_version` and run automatically at startup. A database created by the 1.x (Drizzle) release has the same `adapters` table but `user_version = 0`; `Open` recognises it and stamps it as version 1, and a test covers that upgrade path.
 
 ### Layout
 
 ```text
 dt241m-controller/
-├── config.yaml, Dockerfile                  Home Assistant add-on packaging
-├── fixtures/                                Captured DT241M responses (from the handoff)
-├── cmd/dt241m-controller/main.go            Bootstrap, signals
+├── main.go                    Bootstrap, signals
+├── config.yaml, Dockerfile    Home Assistant add-on packaging
+├── fixtures/                  Captured DT241M responses (from the handoff)
 └── internal/
-    ├── dt241m/                              Protocol client, DeviceInfo parsing, TX/RX classification
-    ├── controller/                          Orchestration: discovery, polling, per-MAC write queue, MQTT publishing
-    ├── registry/                            In-memory adapter registry keyed by MAC
-    ├── store/                               SQLite (modernc.org/sqlite) inventory with embedded migrations
-    ├── mqtt/                                Connection interface, paho.golang impl, topics, HA Discovery payloads, router
-    ├── config/, cidr/, mac/, discovery/     Options + Supervisor MQTT lookup, range expansion, identity, probing
-    └── testutil/                            Offline device simulator (http.RoundTripper), fake MQTT, fixtures
+    ├── controller/            Orchestration: probing, discovery, polling, per-MAC write queue, MQTT publishing
+    ├── dt241m/                Protocol client, DeviceInfo parsing, TX/RX classification
+    ├── mqtt/                  Connection interface, paho.golang impl, topics, HA Discovery payloads, router
+    ├── registry/              In-memory adapter inventory keyed by MAC
+    ├── store/                 SQLite (modernc.org/sqlite) persistence with versioned migrations
+    ├── config/                Options, scan-range validation, Supervisor MQTT lookup
+    ├── mac/                   MAC normalisation (the identity used everywhere)
+    └── testutil/              Offline device simulator (http.RoundTripper), fake MQTT, fixtures
 ```
 
 ## Tests
 
-`go test -race ./...` runs 79 tests entirely offline against a simulated device network (an `http.RoundTripper` built from the captured fixtures). No test contacts real hardware or any historical device address. The suites cover the protocol contract, fixture parsing, classification, CIDR/config validation, the Supervisor MQTT lookup, registry behaviour, discovery, polling, DHCP identity safety, command ordering, hardware quirks, MQTT Discovery/behaviour and SQLite persistence/restart.
+`go test -race ./...` runs 85 tests entirely offline against a simulated device network (an `http.RoundTripper` built from the captured fixtures). No test contacts real hardware or any historical device address. The suites cover the protocol contract, fixture parsing, classification, CIDR/config validation, the Supervisor MQTT lookup, registry behaviour, discovery, polling, DHCP identity safety, command ordering, hardware quirks, MQTT Discovery/behaviour and SQLite persistence/restart.
 
 ## Limitations
 

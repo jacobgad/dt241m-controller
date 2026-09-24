@@ -7,16 +7,19 @@ import (
 	"github.com/jacobgad/dt241m-controller/internal/registry"
 )
 
+// Origin identifies this add-on in discovery payloads.
 type Origin struct {
 	Version    string
 	SupportURL string
 }
 
+// Message is one retained discovery config.
 type Message struct {
 	Topic   string
 	Payload map[string]any
 }
 
+// JSON renders the payload.
 func (m Message) JSON() string {
 	data, _ := json.Marshal(m.Payload)
 	return string(data)
@@ -27,6 +30,7 @@ const (
 	controllerName = "DT241M Controller"
 )
 
+// Icons distinguish roles at a glance in the Home Assistant UI.
 var Icons = map[string]string{
 	"receiver":    "mdi:monitor",
 	"transmitter": "mdi:broadcast",
@@ -90,6 +94,7 @@ func withAdapterAvailability(a registry.Adapter, payload map[string]any) map[str
 	return payload
 }
 
+// ReceiverChannel is the writable Channel number entity for a receiver.
 func ReceiverChannel(a registry.Adapter, o Origin) Message {
 	t := ForDevice(a.MAC)
 	return Message{
@@ -114,6 +119,7 @@ func ReceiverChannel(a registry.Adapter, o Origin) Message {
 	}
 }
 
+// ReadOnlyChannel is the read-only Channel sensor for transmitters and unknown devices.
 func ReadOnlyChannel(a registry.Adapter, o Origin) Message {
 	t := ForDevice(a.MAC)
 	return Message{
@@ -130,6 +136,7 @@ func ReadOnlyChannel(a registry.Adapter, o Origin) Message {
 	}
 }
 
+// Name is the writable Name text entity; available whenever the controller is, so offline devices can still be renamed.
 func Name(a registry.Adapter, o Origin) Message {
 	t := ForDevice(a.MAC)
 	return Message{
@@ -154,6 +161,7 @@ func Name(a registry.Adapter, o Origin) Message {
 	}
 }
 
+// IPAddress is the diagnostic IP sensor.
 func IPAddress(a registry.Adapter, o Origin) Message {
 	return Message{
 		Topic: HADiscoveryTopic("sensor", DeviceNodeID(a.MAC), "ip_address"),
@@ -170,6 +178,7 @@ func IPAddress(a registry.Adapter, o Origin) Message {
 	}
 }
 
+// Role is the diagnostic Role sensor.
 func Role(a registry.Adapter, o Origin) Message {
 	return Message{
 		Topic: HADiscoveryTopic("sensor", DeviceNodeID(a.MAC), "role"),
@@ -186,6 +195,7 @@ func Role(a registry.Adapter, o Origin) Message {
 	}
 }
 
+// AdapterMessages lists every entity published for an adapter.
 func AdapterMessages(a registry.Adapter, o Origin) []Message {
 	channel := ReadOnlyChannel(a, o)
 	if a.Role == dt241m.RoleReceiver {
@@ -194,7 +204,8 @@ func AdapterMessages(a registry.Adapter, o Origin) []Message {
 	return []Message{channel, Name(a, o), IPAddress(a, o), Role(a, o)}
 }
 
-// StaleChannelTopic is the config topic of the *other* channel component, cleared when a role flips.
+// StaleChannelTopic is the config topic of the other channel component. It is cleared
+// when a role flips so Home Assistant never sees one unique_id under two platforms.
 func StaleChannelTopic(a registry.Adapter) string {
 	other := "number"
 	if a.Role == dt241m.RoleReceiver {
@@ -203,6 +214,7 @@ func StaleChannelTopic(a registry.Adapter) string {
 	return HADiscoveryTopic(other, DeviceNodeID(a.MAC), "channel")
 }
 
+// RescanButton is the controller's Rescan network button.
 func RescanButton(o Origin) Message {
 	return Message{
 		Topic: HADiscoveryTopic("button", ControllerNodeID, "rescan"),
@@ -239,6 +251,7 @@ func countSensor(o Origin, objectID, name, stateTopic string) Message {
 	}
 }
 
+// ControllerMessages lists the controller device's entities.
 func ControllerMessages(o Origin) []Message {
 	return []Message{
 		RescanButton(o),

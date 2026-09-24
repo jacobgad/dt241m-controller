@@ -2,45 +2,45 @@ package controller
 
 import "sync"
 
-// keyedQueue runs functions for the same key strictly in call order; different keys run concurrently.
+// keyedQueue serialises work per key. Slots are claimed at enqueue time, under the
+// lock, so the order in which callers arrive is the order in which their work runs
+// even though the work itself happens on background goroutines.
 type keyedQueue struct {
 	mu    sync.Mutex
 	tails map[string]chan struct{}
-	depth map[string]int
+	wg    sync.WaitGroup
 }
 
 func newKeyedQueue() *keyedQueue {
-	return &keyedQueue{tails: make(map[string]chan struct{}), depth: make(map[string]int)}
+	return &keyedQueue{tails: make(map[string]chan struct{})}
 }
 
-func (q *keyedQueue) run(key string, fn func()) {
+func (q *keyedQueue) enqueue(key string, fn func()) <-chan struct{} {
 	q.mu.Lock()
 	prev := q.tails[key]
 	done := make(chan struct{})
 	q.tails[key] = done
-	q.depth[key]++
+	q.wg.Add(1)
 	q.mu.Unlock()
 
-	if prev != nil {
-		<-prev
-	}
-	defer func() {
-		close(done)
-		q.mu.Lock()
-		if q.tails[key] == done {
-			delete(q.tails, key)
+	go func() {
+		defer q.wg.Done()
+		defer func() {
+			close(done)
+			q.mu.Lock()
+			if q.tails[key] == done {
+				delete(q.tails, key)
+			}
+			q.mu.Unlock()
+		}()
+		if prev != nil {
+			<-prev
 		}
-		q.depth[key]--
-		if q.depth[key] == 0 {
-			delete(q.depth, key)
-		}
-		q.mu.Unlock()
+		fn()
 	}()
-	fn()
+	return done
 }
 
-func (q *keyedQueue) pending(key string) int {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	return q.depth[key]
+func (q *keyedQueue) wait() {
+	q.wg.Wait()
 }

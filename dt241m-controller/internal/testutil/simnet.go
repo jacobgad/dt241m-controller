@@ -74,18 +74,18 @@ func (r Request) ChannelParam() int {
 type Responder func(rpc *RPC, device *Device) *http.Response
 
 type Device struct {
-	MAC                 string
-	Template            map[string]any
-	Reported            int
-	Video               int
-	FrontPanel          int
-	AckWithoutApply     bool
-	WriteHangsAfterAppl bool
-	ReadHangs           bool
-	RejectWrites        bool
-	Responder           Responder
-	WriteCount          int
-	mu                  sync.Mutex
+	MAC             string
+	Template        map[string]any
+	Reported        int
+	Video           int
+	FrontPanel      int
+	AckWithoutApply bool
+	WriteHangs      bool
+	ReadHangs       bool
+	RejectWrites    bool
+	Responder       Responder
+	WriteCount      int
+	mu              sync.Mutex
 }
 
 type DeviceOptions struct {
@@ -111,16 +111,16 @@ func NewDevice(opts DeviceOptions) *Device {
 		initial = *opts.Reported
 	}
 	d := &Device{
-		MAC:                 opts.MAC,
-		Template:            template,
-		Reported:            initial,
-		Video:               initial,
-		FrontPanel:          initial,
-		AckWithoutApply:     opts.AckWithoutApply,
-		WriteHangsAfterAppl: opts.WriteHangs,
-		ReadHangs:           opts.ReadHangs,
-		RejectWrites:        opts.RejectWrites,
-		Responder:           opts.Responder,
+		MAC:             opts.MAC,
+		Template:        template,
+		Reported:        initial,
+		Video:           initial,
+		FrontPanel:      initial,
+		AckWithoutApply: opts.AckWithoutApply,
+		WriteHangs:      opts.WriteHangs,
+		ReadHangs:       opts.ReadHangs,
+		RejectWrites:    opts.RejectWrites,
+		Responder:       opts.Responder,
 	}
 	if opts.FrontPanel != nil {
 		d.FrontPanel = *opts.FrontPanel
@@ -307,7 +307,7 @@ func (n *Network) RoundTrip(req *http.Request) (*http.Response, error) {
 		if channel := recorded.ChannelParam(); channel >= 0 {
 			device.ApplyChannel(channel)
 		}
-		if device.WriteHangsAfterAppl {
+		if device.WriteHangs {
 			return hang(req)
 		}
 		return DeviceResponse(`{"jsonrpc":"2.0","id":1,"result":{"result":true}}`), nil

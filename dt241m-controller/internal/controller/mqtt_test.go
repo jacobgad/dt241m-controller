@@ -1,6 +1,7 @@
 package controller_test
 
 import (
+	"errors"
 	"regexp"
 	"strings"
 	"testing"
@@ -195,7 +196,9 @@ func TestShutdownPublishesOfflineAndRefusesCommands(t *testing.T) {
 	if last, _ := h.mqtt.LastOn(mqtt.ControllerAvailability); last.Payload != "offline" || !last.Retain || !h.mqtt.Ended {
 		t.Fatalf("shutdown state %+v ended=%v", last, h.mqtt.Ended)
 	}
-	if _, err := h.ctrl.RequestChannelChange(h.ctx, testutil.RxFixtureMAC, 4); err == nil || err.(*controller.Rejected).Reason != "shutting_down" {
+	_, err := h.ctrl.RequestChannelChange(h.ctx, testutil.RxFixtureMAC, 4)
+	var rejected *controller.Rejected
+	if !errors.As(err, &rejected) || rejected.Reason != controller.ReasonShuttingDown {
 		t.Fatalf("expected shutting_down, got %v", err)
 	}
 }

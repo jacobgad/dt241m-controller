@@ -8,6 +8,7 @@ Rewrite in Go. Behaviour, MQTT topics, Home Assistant entities, unique IDs and t
 - No native modules or Node ABI coupling; SQLite via the pure-Go `modernc.org/sqlite`
 - MQTT via `eclipse/paho.golang` (MQTT 5) with automatic reconnection
 - Broker credentials read directly from the Supervisor services API; no bashio or s6 in the image
+- Databases created by 1.x are adopted in place (their `adapters` table is identical; only the schema-version marker is added)
 - Validated against the same live 16-unit installation as 1.x (discovery, restart from SQLite, receiver channel switching)
 
 ## 1.0.1

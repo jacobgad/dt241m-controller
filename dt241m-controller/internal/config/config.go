@@ -1,3 +1,5 @@
+// Package config loads add-on options from /data/options.json and the MQTT broker
+// details from either the environment or the Home Assistant Supervisor.
 package config
 
 import (
@@ -6,24 +8,25 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/netip"
 	"os"
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/jacobgad/dt241m-controller/internal/cidr"
 )
 
+// Options are the validated add-on options.
 type Options struct {
 	ScanRanges           []netip.Prefix
 	PollInterval         time.Duration
 	ProbeTimeout         time.Duration
 	DiscoveryConcurrency int
-	LogLevel             string
+	LogLevel             slog.Level
 }
 
+// MQTT is how to reach the broker.
 type MQTT struct {
 	Host     string
 	Port     int
@@ -32,6 +35,7 @@ type MQTT struct {
 	TLS      bool
 }
 
+// Config is everything the binary needs to start.
 type Config struct {
 	Options      Options
 	MQTT         MQTT
@@ -46,6 +50,7 @@ type rawOptions struct {
 	LogLevel             *string  `json:"log_level"`
 }
 
+// ParseOptions validates the JSON contents of options.json and applies defaults.
 func ParseOptions(data []byte) (Options, error) {
 	var raw rawOptions
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -54,9 +59,9 @@ func ParseOptions(data []byte) (Options, error) {
 	if len(raw.ScanRanges) == 0 {
 		return Options{}, errors.New("scan_ranges: configure at least one scan range")
 	}
-	opts := Options{PollInterval: 15 * time.Second, ProbeTimeout: 2 * time.Second, DiscoveryConcurrency: 8, LogLevel: "info"}
+	opts := Options{PollInterval: 15 * time.Second, ProbeTimeout: 2 * time.Second, DiscoveryConcurrency: 8, LogLevel: slog.LevelInfo}
 	for _, text := range raw.ScanRanges {
-		prefix, err := cidr.ParseScanRange(text)
+		prefix, err := ParseScanRange(text)
 		if err != nil {
 			return Options{}, fmt.Errorf("scan_ranges: %w", err)
 		}
@@ -81,16 +86,14 @@ func ParseOptions(data []byte) (Options, error) {
 		opts.DiscoveryConcurrency = *raw.DiscoveryConcurrency
 	}
 	if raw.LogLevel != nil {
-		switch *raw.LogLevel {
-		case "debug", "info", "warn", "error":
-			opts.LogLevel = *raw.LogLevel
-		default:
+		if err := opts.LogLevel.UnmarshalText([]byte(*raw.LogLevel)); err != nil {
 			return Options{}, errors.New("log_level must be one of debug, info, warn, error")
 		}
 	}
 	return opts, nil
 }
 
+// MQTTFromEnv reads MQTT_HOST, MQTT_PORT, MQTT_USERNAME, MQTT_PASSWORD and MQTT_SSL.
 func MQTTFromEnv(getenv func(string) string) (MQTT, error) {
 	host := getenv("MQTT_HOST")
 	if host == "" {
@@ -113,7 +116,8 @@ func MQTTFromEnv(getenv func(string) string) (MQTT, error) {
 
 const supervisorServicesURL = "http://supervisor/services/mqtt"
 
-// MQTTFromSupervisor asks the Home Assistant Supervisor for the shared MQTT service.
+// MQTTFromSupervisor fetches the broker registered with the Supervisor services API,
+// which is reachable without hassio_api once the add-on declares the mqtt service.
 func MQTTFromSupervisor(ctx context.Context, token string, client *http.Client) (MQTT, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, supervisorServicesURL, nil)
 	if err != nil {
@@ -145,9 +149,10 @@ func MQTTFromSupervisor(ctx context.Context, token string, client *http.Client) 
 	return MQTT{Host: payload.Data.Host, Port: payload.Data.Port, Username: payload.Data.Username, Password: payload.Data.Password, TLS: payload.Data.SSL}, nil
 }
 
+// Load reads options.json and resolves MQTT settings, preferring MQTT_HOST when set.
 func Load(ctx context.Context) (Config, error) {
 	optionsPath := envOr("DT241M_OPTIONS_PATH", "/data/options.json")
-	data, err := os.ReadFile(optionsPath)
+	data, err := os.ReadFile(optionsPath) //nolint:gosec // path is fixed by the add-on or set by the operator's own environment
 	if err != nil {
 		return Config{}, fmt.Errorf("read %s: %w", optionsPath, err)
 	}

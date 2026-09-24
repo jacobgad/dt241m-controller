@@ -2,10 +2,10 @@ FROM golang:1.27-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
-COPY cmd ./cmd
+COPY main.go ./
 COPY internal ./internal
 ARG BUILD_VERSION=dev
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${BUILD_VERSION}" -o /out/dt241m-controller ./cmd/dt241m-controller
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${BUILD_VERSION}" -o /out/dt241m-controller .
 
 FROM alpine:3.24
 

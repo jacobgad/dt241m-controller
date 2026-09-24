@@ -1,6 +1,7 @@
 package testutil
 
 import (
+	"context"
 	"sort"
 	"sync"
 
@@ -16,7 +17,7 @@ func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{records: make(map[string]registry.Adapter)}
 }
 
-func (m *MemoryStore) LoadAll() ([]registry.Adapter, error) {
+func (m *MemoryStore) LoadAll(context.Context) ([]registry.Adapter, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	out := make([]registry.Adapter, 0, len(m.records))
@@ -28,14 +29,17 @@ func (m *MemoryStore) LoadAll() ([]registry.Adapter, error) {
 	return out, nil
 }
 
-func (m *MemoryStore) Save(a registry.Adapter) error {
+func (m *MemoryStore) Save(_ context.Context, a registry.Adapter) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if existing, ok := m.records[a.MAC]; ok {
+		a.Name = existing.Name
+	}
 	m.records[a.MAC] = a
 	return nil
 }
 
-func (m *MemoryStore) SetName(mac string, name *string) error {
+func (m *MemoryStore) SetName(_ context.Context, mac string, name *string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if a, ok := m.records[mac]; ok {

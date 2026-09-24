@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -9,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jacobgad/dt241m-controller/internal/cidr"
 	"github.com/jacobgad/dt241m-controller/internal/config"
 )
 
@@ -18,10 +18,10 @@ func TestOptionsDefaultsAndMultipleRanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if opts.PollInterval != 15*time.Second || opts.ProbeTimeout != 2*time.Second || opts.DiscoveryConcurrency != 8 || opts.LogLevel != "info" {
+	if opts.PollInterval != 15*time.Second || opts.ProbeTimeout != 2*time.Second || opts.DiscoveryConcurrency != 8 || opts.LogLevel != slog.LevelInfo {
 		t.Fatalf("defaults %+v", opts)
 	}
-	if got := strings.Join(cidr.Texts(opts.ScanRanges), ","); got != "192.168.40.0/24,10.10.5.0/25" {
+	if got := strings.Join(opts.ScanRangeTexts(), ","); got != "192.168.40.0/24,10.10.5.0/25" {
 		t.Fatalf("ranges %s", got)
 	}
 }
@@ -45,25 +45,25 @@ func TestOptionsRejections(t *testing.T) {
 }
 
 func TestCIDRExpansion(t *testing.T) {
-	p, _ := cidr.ParseScanRange("192.168.40.17/24")
+	p, _ := config.ParseScanRange("192.168.40.17/24")
 	if p.String() != "192.168.40.0/24" {
 		t.Fatalf("not normalised: %s", p)
 	}
-	hosts := cidr.Hosts(p)
+	hosts := config.Hosts(p)
 	if len(hosts) != 254 || hosts[0] != "192.168.40.1" || hosts[253] != "192.168.40.254" {
 		t.Fatalf("hosts %d %s..%s", len(hosts), hosts[0], hosts[len(hosts)-1])
 	}
-	p31, _ := cidr.ParseScanRange("10.0.0.4/31")
-	p32, _ := cidr.ParseScanRange("10.0.0.9/32")
-	if h := cidr.Hosts(p31); len(h) != 2 || h[0] != "10.0.0.4" || h[1] != "10.0.0.5" {
+	p31, _ := config.ParseScanRange("10.0.0.4/31")
+	p32, _ := config.ParseScanRange("10.0.0.9/32")
+	if h := config.Hosts(p31); len(h) != 2 || h[0] != "10.0.0.4" || h[1] != "10.0.0.5" {
 		t.Fatalf("/31 %v", h)
 	}
-	if h := cidr.Hosts(p32); len(h) != 1 || h[0] != "10.0.0.9" {
+	if h := config.Hosts(p32); len(h) != 1 || h[0] != "10.0.0.9" {
 		t.Fatalf("/32 %v", h)
 	}
-	a, _ := cidr.ParseScanRange("10.0.0.0/30")
-	b, _ := cidr.ParseScanRange("10.0.0.0/29")
-	if all := cidr.ExpandAll([]netip.Prefix{a, b}); len(all) != 6 || all[0] != "10.0.0.1" || all[5] != "10.0.0.6" {
+	a, _ := config.ParseScanRange("10.0.0.0/30")
+	b, _ := config.ParseScanRange("10.0.0.0/29")
+	if all := (config.Options{ScanRanges: []netip.Prefix{a, b}}).ScanHosts(); len(all) != 6 || all[0] != "10.0.0.1" || all[5] != "10.0.0.6" {
 		t.Fatalf("dedupe %v", all)
 	}
 }

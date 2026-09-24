@@ -1,3 +1,4 @@
+// Package registry is the in-memory inventory of adapters keyed by MAC address.
 package registry
 
 import (
@@ -12,8 +13,10 @@ import (
 	"github.com/jacobgad/dt241m-controller/internal/mac"
 )
 
+// MaxNameLength bounds the user-editable name; it is also advertised to Home Assistant.
 const MaxNameLength = 64
 
+// Adapter is one DT241M unit. MAC is its identity; IP is only where it was last reached.
 type Adapter struct {
 	MAC          string
 	ID           string
@@ -30,6 +33,7 @@ type Adapter struct {
 	LastSeenAt   *time.Time
 }
 
+// DisplayName is the user's name when set, otherwise what the hardware reports.
 func (a Adapter) DisplayName() string {
 	switch {
 	case a.Name != nil:
@@ -43,6 +47,7 @@ func (a Adapter) DisplayName() string {
 	}
 }
 
+// Observation describes what changed when a device answered a probe.
 type Observation struct {
 	Adapter         Adapter
 	Created         bool
@@ -55,6 +60,7 @@ type Observation struct {
 	Displaced       *Adapter
 }
 
+// Counts feeds the controller's Known/Online sensors.
 type Counts struct {
 	Known  int
 	Online int
@@ -62,7 +68,8 @@ type Counts struct {
 
 var controlChars = regexp.MustCompile(`[\x00-\x1f\x7f]`)
 
-// ValidateName trims raw; an empty result means "clear the name" and returns (nil, nil).
+// ValidateName trims and bounds a name from Home Assistant. A blank name is a
+// request to clear it, reported as (nil, nil).
 func ValidateName(raw string) (*string, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
@@ -77,26 +84,30 @@ func ValidateName(raw string) (*string, error) {
 	return &trimmed, nil
 }
 
+// Registry is safe for concurrent use; every accessor returns copies.
 type Registry struct {
 	mu       sync.RWMutex
 	adapters map[string]*Adapter
 }
 
+// New returns an empty registry.
 func New() *Registry {
 	return &Registry{adapters: make(map[string]*Adapter)}
 }
 
+// Hydrate loads persisted adapters, all offline until a probe proves otherwise.
 func (r *Registry) Hydrate(adapters []Adapter) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, a := range adapters {
-		copy := a
-		copy.Online = false
-		r.adapters[a.MAC] = &copy
+		loaded := a
+		loaded.Online = false
+		r.adapters[a.MAC] = &loaded
 	}
 }
 
-func (r *Registry) Get(macAddr string) (Adapter, bool) {
+// Lookup returns the adapter with the given normalised MAC.
+func (r *Registry) Lookup(macAddr string) (Adapter, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	a, ok := r.adapters[macAddr]
@@ -106,6 +117,7 @@ func (r *Registry) Get(macAddr string) (Adapter, bool) {
 	return *a, true
 }
 
+// All returns every adapter ordered by MAC.
 func (r *Registry) All() []Adapter {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -117,6 +129,7 @@ func (r *Registry) All() []Adapter {
 	return out
 }
 
+// Counts tallies known and online adapters.
 func (r *Registry) Counts() Counts {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -129,6 +142,7 @@ func (r *Registry) Counts() Counts {
 	return c
 }
 
+// SetName replaces the user name (nil clears it) and returns the updated adapter.
 func (r *Registry) SetName(macAddr string, name *string) (Adapter, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -140,6 +154,7 @@ func (r *Registry) SetName(macAddr string, name *string) (Adapter, bool) {
 	return *a, true
 }
 
+// MarkOffline flips an adapter offline; ok is false if it was already offline or unknown.
 func (r *Registry) MarkOffline(macAddr string) (Adapter, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -151,6 +166,8 @@ func (r *Registry) MarkOffline(macAddr string) (Adapter, bool) {
 	return *a, true
 }
 
+// RecordObservation applies a device response seen at ip. Any other adapter that was
+// online at the same ip is displaced offline, since one address cannot host two devices.
 func (r *Registry) RecordObservation(ip string, info *dt241m.DeviceInfo, now time.Time) (Observation, bool) {
 	macAddr := mac.Normalize(info.LanMAC)
 	if macAddr == "" {

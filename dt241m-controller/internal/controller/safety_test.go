@@ -1,6 +1,7 @@
 package controller_test
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jacobgad/dt241m-controller/internal/controller"
+	"github.com/jacobgad/dt241m-controller/internal/dt241m"
 	"github.com/jacobgad/dt241m-controller/internal/mqtt"
 	"github.com/jacobgad/dt241m-controller/internal/testutil"
 )
@@ -57,8 +59,8 @@ func TestDHCPReuseNeverWritesToWrongDevice(t *testing.T) {
 	if verifyNew < 0 || verifyNew > firstWrite {
 		t.Fatal("new IP was not verified before writing")
 	}
-	adapterA, _ := h.ctrl.Registry.Get(rxA)
-	adapterB, _ := h.ctrl.Registry.Get(rxB)
+	adapterA, _ := h.ctrl.Registry.Lookup(rxA)
+	adapterB, _ := h.ctrl.Registry.Lookup(rxB)
 	if adapterA.IP != "192.168.1.10" || adapterA.ID != "dt241m_aaaaaaaaaaaa" || adapterB.IP != "192.168.1.5" || len(h.ctrl.Registry.All()) != 2 {
 		t.Fatal("registry wrong")
 	}
@@ -81,10 +83,10 @@ func TestNoWriteWhenTargetCannotBeLocated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if outcome.Status != controller.StatusFailed || outcome.Reason != "device_not_located" || b.Writes() != 0 {
+	if outcome.Status != controller.StatusFailed || outcome.Reason != controller.ReasonDeviceNotLocated || b.Writes() != 0 {
 		t.Fatalf("outcome %+v writes %d", outcome, b.Writes())
 	}
-	a, _ := h.ctrl.Registry.Get(rxA)
+	a, _ := h.ctrl.Registry.Lookup(rxA)
 	if a.Online {
 		t.Fatal("should be offline")
 	}
@@ -125,11 +127,11 @@ func TestRefusesTransmittersUnknownRolesAndUnknownDevices(t *testing.T) {
 		o.Overrides = map[string]any{"product_name": "Mystery", "model": "unknown"}
 	})
 	h.discover(t)
-	mystery, _ := h.ctrl.Registry.Get("cc:cc:cc:cc:cc:cc")
+	mystery, _ := h.ctrl.Registry.Lookup("cc:cc:cc:cc:cc:cc")
 	if mystery.Role != "unknown" {
 		t.Fatal("expected unknown role")
 	}
-	for macAddr, reason := range map[string]string{testutil.TxFixtureMAC: "not_a_receiver", "cc:cc:cc:cc:cc:cc": "not_a_receiver", "dd:dd:dd:dd:dd:dd": "unknown_device"} {
+	for macAddr, reason := range map[string]controller.FailureReason{testutil.TxFixtureMAC: controller.ReasonNotAReceiver, "cc:cc:cc:cc:cc:cc": controller.ReasonNotAReceiver, "dd:dd:dd:dd:dd:dd": controller.ReasonUnknownDevice} {
 		_, err := h.ctrl.RequestChannelChange(h.ctx, macAddr, 2)
 		var rej *controller.Rejected
 		if !errors.As(err, &rej) || rej.Reason != reason {
@@ -270,7 +272,7 @@ func TestWriteTimeoutIsAmbiguousAndNotResent(t *testing.T) {
 	if d.Writes() != 1 || len(h.net.WritesTo("192.168.1.5")) != 1 {
 		t.Fatal("write was resent")
 	}
-	if outcome.Status != controller.StatusMatched || outcome.WriteAccepted != "unknown" || h.mqtt.LastPayload(mqtt.ForDevice(testutil.RxFixtureMAC).ChannelState) != "4" {
+	if outcome.Status != controller.StatusMatched || outcome.Write != controller.WriteAmbiguous || h.mqtt.LastPayload(mqtt.ForDevice(testutil.RxFixtureMAC).ChannelState) != "4" {
 		t.Fatalf("outcome %+v", outcome)
 	}
 	if !h.logs.Contains("channel_change_ambiguous") {
@@ -283,7 +285,7 @@ func TestRejectedWritePublishesActualState(t *testing.T) {
 	rx(testutil.RxFixtureMAC, "192.168.1.5", h.net, func(o *testutil.DeviceOptions) { o.RejectWrites = true })
 	h.discover(t)
 	outcome, _ := h.ctrl.RequestChannelChange(h.ctx, testutil.RxFixtureMAC, 4)
-	if outcome.Status != controller.StatusFailed || outcome.Reason != "write_rejected" || *outcome.Reported != 2 {
+	if outcome.Status != controller.StatusFailed || outcome.Reason != controller.ReasonWriteRejected || *outcome.Reported != 2 {
 		t.Fatalf("outcome %+v", outcome)
 	}
 }
@@ -309,7 +311,79 @@ func TestParsesHTMLLabelledJSON(t *testing.T) {
 		}
 	})
 	h.discover(t)
-	if _, ok := h.ctrl.Registry.Get(testutil.RxFixtureMAC); !ok {
+	if _, ok := h.ctrl.Registry.Lookup(testutil.RxFixtureMAC); !ok {
 		t.Fatal("device not discovered from text/html response")
+	}
+}
+
+func TestBackToBackMQTTCommandsExecuteInDeliveryOrder(t *testing.T) {
+	h := newHarness(t, harnessOptions{})
+	d := rx(rxA, "192.168.1.5", h.net)
+	h.discover(t)
+	gate := make(chan struct{})
+	first := true
+	d.Responder = func(rpc *testutil.RPC, dev *testutil.Device) *http.Response {
+		if rpc == nil || rpc.Method != "set_channel_id" {
+			return nil
+		}
+		if first {
+			first = false
+			return gatedWrite(gate)(rpc, dev)
+		}
+		dev.ApplyChannel(int(rpc.Params["channel_id"].(float64)))
+		return testutil.DeviceResponse(`{"jsonrpc":"2.0","id":1,"result":{"result":true}}`)
+	}
+
+	for _, channel := range []string{"2", "5", "3", "9"} {
+		h.mqtt.Deliver(mqtt.ForDevice(rxA).ChannelSet, channel)
+	}
+	eventually(t, func() bool { return len(h.net.WritesTo("192.168.1.5")) == 1 }, "first write to start")
+	close(gate)
+	eventually(t, func() bool { return len(h.net.WritesTo("192.168.1.5")) == 4 }, "all writes")
+	eventually(t, func() bool { return h.mqtt.LastPayload(mqtt.ForDevice(rxA).ChannelState) == "9" }, "final state")
+
+	order := make([]int, 0, 4)
+	for _, w := range h.net.WritesTo("192.168.1.5") {
+		order = append(order, w.ChannelParam())
+	}
+	if len(order) != 4 || order[0] != 2 || order[1] != 5 || order[2] != 3 || order[3] != 9 {
+		t.Fatalf("write order %v", order)
+	}
+	if d.ReportedChannel() != 9 {
+		t.Fatal("newest request must win")
+	}
+}
+
+func TestCancelledWriteIsAmbiguousNotRejected(t *testing.T) {
+	net := testutil.NewNetwork()
+	d := rx(testutil.RxFixtureMAC, "192.168.1.5", net, func(o *testutil.DeviceOptions) { o.WriteHangs = true })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		eventually(t, func() bool { return d.Writes() == 1 }, "write to be applied")
+		cancel()
+	}()
+	client := dt241m.NewHTTPClient(dt241m.Options{Transport: net, Timeout: time.Second})
+	err := client.SetChannel(ctx, "192.168.1.5", 4)
+	if !dt241m.IsCode(err, dt241m.CodeCanceled) || !dt241m.Ambiguous(err) {
+		t.Fatalf("expected CANCELED/ambiguous, got %v", err)
+	}
+	if dt241m.Ambiguous(errors.New("plain")) {
+		t.Fatal("plain errors are not ambiguous")
+	}
+}
+
+func TestRenameSurvivesConcurrentPollPersist(t *testing.T) {
+	h := newHarness(t, harnessOptions{})
+	rx(testutil.RxFixtureMAC, "192.168.1.5", h.net)
+	h.discover(t)
+	snapshot, _ := h.ctrl.Registry.Lookup(testutil.RxFixtureMAC)
+	h.ctrl.Rename(h.ctx, testutil.RxFixtureMAC, "Main Projector")
+	if err := h.store.Save(context.Background(), snapshot); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ := h.store.LoadAll(context.Background())
+	if rows[0].Name == nil || *rows[0].Name != "Main Projector" {
+		t.Fatal("stale snapshot overwrote the rename")
 	}
 }

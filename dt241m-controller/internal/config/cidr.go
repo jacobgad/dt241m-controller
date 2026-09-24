@@ -1,10 +1,11 @@
-package cidr
+package config
 
 import (
 	"fmt"
 	"net/netip"
 )
 
+// MinScanPrefix caps a single range at 65,534 probes.
 const MinScanPrefix = 16
 
 var privateBlocks = []netip.Prefix{
@@ -13,7 +14,7 @@ var privateBlocks = []netip.Prefix{
 	netip.MustParsePrefix("192.168.0.0/16"),
 }
 
-// ParseScanRange validates an IPv4 CIDR for use as a discovery range.
+// ParseScanRange accepts a private IPv4 CIDR no wider than MinScanPrefix and returns it masked.
 func ParseScanRange(text string) (netip.Prefix, error) {
 	prefix, err := netip.ParsePrefix(text)
 	if err != nil || !prefix.Addr().Is4() {
@@ -23,13 +24,13 @@ func ParseScanRange(text string) (netip.Prefix, error) {
 	if prefix.Bits() < MinScanPrefix {
 		return netip.Prefix{}, fmt.Errorf("%q is too large; use a prefix of /%d or longer", text, MinScanPrefix)
 	}
-	if !IsPrivate(prefix) {
+	if !isPrivate(prefix) {
 		return netip.Prefix{}, fmt.Errorf("%q is not a private (RFC 1918) range; refusing to scan it", text)
 	}
 	return prefix, nil
 }
 
-func IsPrivate(prefix netip.Prefix) bool {
+func isPrivate(prefix netip.Prefix) bool {
 	for _, block := range privateBlocks {
 		if block.Bits() <= prefix.Bits() && block.Contains(prefix.Addr()) {
 			return true
@@ -38,7 +39,8 @@ func IsPrivate(prefix netip.Prefix) bool {
 	return false
 }
 
-// Hosts lists the usable host addresses of prefix, skipping network and broadcast for prefixes shorter than /31.
+// Hosts returns the probe targets in prefix. Network and broadcast addresses are skipped
+// except for /31 and /32, where every address is a host.
 func Hosts(prefix netip.Prefix) []string {
 	prefix = prefix.Masked()
 	size := 1 << (32 - prefix.Bits())
@@ -57,11 +59,11 @@ func Hosts(prefix netip.Prefix) []string {
 	return hosts
 }
 
-// ExpandAll returns the de-duplicated union of hosts across prefixes, preserving order.
-func ExpandAll(prefixes []netip.Prefix) []string {
+// ScanHosts returns the de-duplicated probe targets across all configured ranges, in range order.
+func (o Options) ScanHosts() []string {
 	seen := make(map[string]struct{})
 	var out []string
-	for _, prefix := range prefixes {
+	for _, prefix := range o.ScanRanges {
 		for _, host := range Hosts(prefix) {
 			if _, dup := seen[host]; dup {
 				continue
@@ -73,9 +75,10 @@ func ExpandAll(prefixes []netip.Prefix) []string {
 	return out
 }
 
-func Texts(prefixes []netip.Prefix) []string {
-	out := make([]string, len(prefixes))
-	for i, p := range prefixes {
+// ScanRangeTexts renders the configured ranges for logging.
+func (o Options) ScanRangeTexts() []string {
+	out := make([]string, len(o.ScanRanges))
+	for i, p := range o.ScanRanges {
 		out[i] = p.String()
 	}
 	return out

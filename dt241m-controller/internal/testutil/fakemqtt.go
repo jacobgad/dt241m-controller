@@ -55,6 +55,13 @@ func (f *FakeMQTT) OnConnect(h func()) {
 	f.onConnect = append(f.onConnect, h)
 }
 
+func (f *FakeMQTT) AwaitConnection(ctx context.Context) error {
+	if f.Connected() {
+		return nil
+	}
+	return ctx.Err()
+}
+
 func (f *FakeMQTT) Connected() bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -123,8 +130,9 @@ func (f *FakeMQTT) MessagesOn(topic string) []Published {
 }
 
 func (f *FakeMQTT) PayloadsOn(topic string) []string {
-	var out []string
-	for _, p := range f.MessagesOn(topic) {
+	msgs := f.MessagesOn(topic)
+	out := make([]string, 0, len(msgs))
+	for _, p := range msgs {
 		out = append(out, p.Payload)
 	}
 	return out

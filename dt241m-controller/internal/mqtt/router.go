@@ -9,6 +9,9 @@ import (
 	"github.com/jacobgad/dt241m-controller/internal/dt241m"
 )
 
+// Actions are invoked synchronously from the broker's delivery goroutine, so each
+// must return quickly; the controller reserves its queue slot inline and does the
+// work in the background, which is what preserves command order.
 type Actions struct {
 	ChannelCommand      func(mac string, channel int)
 	NameCommand         func(mac string, raw string)
@@ -16,6 +19,7 @@ type Actions struct {
 	HomeAssistantOnline func()
 }
 
+// Subscriptions are the topics the controller listens on.
 var Subscriptions = []string{DeviceChannelSetWildcard, DeviceNameSetWildcard, ControllerRescanPress, HAStatusTopic}
 
 var channelPayload = regexp.MustCompile(`^[+-]?\d+(\.0+)?$`)
@@ -37,6 +41,7 @@ func ParseChannelPayload(payload string) (int, bool) {
 	return channel, true
 }
 
+// NewRouter maps inbound topics to Actions.
 func NewRouter(actions Actions, log *slog.Logger) MessageHandler {
 	return func(topic string, payload []byte) {
 		if cmd, ok := ParseDeviceCommand(topic); ok {
@@ -47,19 +52,19 @@ func NewRouter(actions Actions, log *slog.Logger) MessageHandler {
 					log.Warn("channel_command_invalid", "mac", cmd.MAC, "payload", string(payload))
 					return
 				}
-				go actions.ChannelCommand(cmd.MAC, channel)
+				actions.ChannelCommand(cmd.MAC, channel)
 			case "name":
-				go actions.NameCommand(cmd.MAC, string(payload))
+				actions.NameCommand(cmd.MAC, string(payload))
 			}
 			return
 		}
 		switch topic {
 		case ControllerRescanPress:
-			go actions.RescanRequested()
+			actions.RescanRequested()
 		case HAStatusTopic:
 			if strings.TrimSpace(string(payload)) == PayloadOnline {
 				log.Info("home_assistant_online")
-				go actions.HomeAssistantOnline()
+				actions.HomeAssistantOnline()
 			}
 		default:
 			log.Debug("mqtt_message_ignored", "topic", topic)

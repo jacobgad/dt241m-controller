@@ -1,3 +1,5 @@
+// Command dt241m-controller is the Home Assistant add-on binary: it bridges PWAY DT241M
+// HDMI-over-IP units to MQTT so they appear as native Home Assistant devices.
 package main
 
 import (
@@ -22,7 +24,6 @@ const supportURL = "https://github.com/jacobgad/dt241m-controller"
 
 func main() {
 	if err := run(); err != nil {
-		fmt.Fprintln(os.Stderr, "fatal:", err)
 		os.Exit(1)
 	}
 }
@@ -31,26 +32,29 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	bootLog := newLogger("info")
 	cfg, err := config.Load(ctx)
 	if err != nil {
-		bootLog.Error("config_invalid", "detail", err.Error())
+		newLogger(slog.LevelInfo).Error("config_invalid", "detail", err.Error())
 		return err
 	}
 	log := newLogger(cfg.Options.LogLevel)
 
-	db, err := store.Open(cfg.DatabasePath)
+	db, err := store.Open(ctx, cfg.DatabasePath)
 	if err != nil {
 		log.Error("database_open_failed", "path", cfg.DatabasePath, "error", err.Error())
 		return err
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			log.Warn("database_close_failed", "error", err.Error())
+		}
+	}()
 	log.Info("database_ready", "path", cfg.DatabasePath)
 
 	conn, err := mqtt.Connect(ctx, mqtt.PahoOptions{
 		Settings: cfg.MQTT,
 		ClientID: fmt.Sprintf("dt241m-controller-%d", os.Getpid()),
-		Will:     struct{ Topic, Payload string }{mqtt.ControllerAvailability, mqtt.PayloadOffline},
+		Will:     mqtt.Will{Topic: mqtt.ControllerAvailability, Payload: mqtt.PayloadOffline},
 		Log:      log,
 	})
 	if err != nil {
@@ -66,30 +70,20 @@ func run() error {
 		Log:     log,
 		Origin:  mqtt.Origin{Version: version, SupportURL: supportURL},
 	})
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	if err := ctrl.Start(ctx); err != nil {
 		log.Error("startup_failed", "error", err.Error())
+		ctrl.Stop(shutdownCtx)
 		return err
 	}
 
 	<-ctx.Done()
 	log.Info("shutdown_requested")
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 	ctrl.Stop(shutdownCtx)
 	return nil
 }
 
-func newLogger(level string) *slog.Logger {
-	var lvl slog.Level
-	switch level {
-	case "debug":
-		lvl = slog.LevelDebug
-	case "warn":
-		lvl = slog.LevelWarn
-	case "error":
-		lvl = slog.LevelError
-	default:
-		lvl = slog.LevelInfo
-	}
-	return slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: lvl}))
+func newLogger(level slog.Level) *slog.Logger {
+	return slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
 }

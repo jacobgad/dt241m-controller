@@ -13,23 +13,25 @@ import (
 	"time"
 )
 
+// Client is the DT241M protocol surface available to the rest of the add-on.
 type Client interface {
 	GetDeviceInfo(ctx context.Context, ip string) (*DeviceInfo, error)
 	SetChannel(ctx context.Context, ip string, channel int) error
 }
 
+// Options configures an HTTPClient; a nil Transport uses a small dedicated pool.
 type Options struct {
 	Transport http.RoundTripper
 	Timeout   time.Duration
-	Password  string
 }
 
+// HTTPClient implements Client over plain HTTP.
 type HTTPClient struct {
-	http     *http.Client
-	timeout  time.Duration
-	password string
+	http    *http.Client
+	timeout time.Duration
 }
 
+// NewHTTPClient builds a client that refuses redirects and bounds every request by Options.Timeout.
 func NewHTTPClient(opts Options) *HTTPClient {
 	transport := opts.Transport
 	if transport == nil {
@@ -51,8 +53,7 @@ func NewHTTPClient(opts Options) *HTTPClient {
 				return errors.New("redirects are not allowed")
 			},
 		},
-		timeout:  timeout,
-		password: opts.Password,
+		timeout: timeout,
 	}
 }
 
@@ -70,11 +71,13 @@ type rpcEnvelope struct {
 	Error   *json.RawMessage `json:"error"`
 }
 
+// EncodeRequest serialises a JSON-RPC 2.0 request with the fixed id the firmware was observed with.
 func EncodeRequest(method string, params map[string]any) []byte {
 	body, _ := json.Marshal(rpcRequest{JSONRPC: "2.0", Method: method, Params: params, ID: RPCID})
 	return body
 }
 
+// GetDeviceInfo reads identity, metadata and the reported channel from the device at ip.
 func (c *HTTPClient) GetDeviceInfo(ctx context.Context, ip string) (*DeviceInfo, error) {
 	result, err := c.rpc(ctx, ip, EncodeRequest(MethodGetDeviceInfo, map[string]any{}))
 	if err != nil {
@@ -82,16 +85,18 @@ func (c *HTTPClient) GetDeviceInfo(ctx context.Context, ip string) (*DeviceInfo,
 	}
 	var info DeviceInfo
 	if err := json.Unmarshal(result, &info); err != nil {
-		return nil, newError(CodeResultShape, "device info is missing required fields")
+		return nil, newError(CodeResultShape, "device info is missing required fields", err)
 	}
 	return &info, nil
 }
 
+// SetChannel requests a channel change and succeeds only on the nested {"result":true} acknowledgement.
+// The blank password matches the only configuration the protocol has been verified with.
 func (c *HTTPClient) SetChannel(ctx context.Context, ip string, channel int) error {
 	if !ValidChannel(channel) {
-		return newError(CodeInput, "channel must be an integer between 0 and 255")
+		return newError(CodeInput, "channel must be an integer between 0 and 255", nil)
 	}
-	result, err := c.rpc(ctx, ip, EncodeRequest(MethodSetChannel, map[string]any{"pswd": c.password, "channel_id": channel}))
+	result, err := c.rpc(ctx, ip, EncodeRequest(MethodSetChannel, map[string]any{"pswd": "", "channel_id": channel}))
 	if err != nil {
 		return err
 	}
@@ -99,66 +104,78 @@ func (c *HTTPClient) SetChannel(ctx context.Context, ip string, channel int) err
 		Result *bool `json:"result"`
 	}
 	if err := json.Unmarshal(result, &ack); err != nil || ack.Result == nil || !*ack.Result {
-		return newError(CodeNotAccepted, "device did not explicitly acknowledge success")
+		return newError(CodeNotAccepted, "device did not explicitly acknowledge success", nil)
 	}
 	return nil
+}
+
+// interrupted maps a failed request to TIMEOUT or CANCELED when the context ended it;
+// both leave a write's outcome unknown, unlike a plain transport failure.
+func interrupted(ctx context.Context, err error, msg string) *Error {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded):
+		return newError(CodeTimeout, "request timed out; a write may still have applied", err)
+	case errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled):
+		return newError(CodeCanceled, "request canceled; a write may still have applied", err)
+	default:
+		return newError(CodeTransport, msg, err)
+	}
+}
+
+// Ambiguous reports whether err leaves a write's outcome unknown.
+func Ambiguous(err error) bool {
+	return IsCode(err, CodeTimeout) || IsCode(err, CodeCanceled)
 }
 
 func (c *HTTPClient) rpc(ctx context.Context, ip string, body []byte) (json.RawMessage, error) {
 	addr, err := netip.ParseAddr(ip)
 	if err != nil || !addr.Is4() {
-		return nil, newError(CodeInput, "expected an IPv4 address")
+		return nil, newError(CodeInput, "expected an IPv4 address", nil)
 	}
 
 	var form bytes.Buffer
 	writer := multipart.NewWriter(&form)
 	if err := writer.WriteField(RPCFormField, string(body)); err != nil {
-		return nil, newError(CodeInput, "could not encode request")
+		return nil, newError(CodeInput, "could not encode request", err)
 	}
 	if err := writer.Close(); err != nil {
-		return nil, newError(CodeInput, "could not encode request")
+		return nil, newError(CodeInput, "could not encode request", err)
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+ip+RPCPath, &form)
 	if err != nil {
-		return nil, newError(CodeInput, "could not build request")
+		return nil, newError(CodeInput, "could not build request", err)
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return nil, newError(CodeTimeout, "request timed out; a write may still have applied")
-		}
-		return nil, newError(CodeTransport, "could not complete the device HTTP request")
+		return nil, interrupted(ctx, err, "could not complete the device HTTP request")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, newError(CodeHTTPStatus, fmt.Sprintf("device returned HTTP %d", resp.StatusCode))
+		return nil, newError(CodeHTTPStatus, fmt.Sprintf("device returned HTTP %d", resp.StatusCode), nil)
 	}
 	text, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return nil, newError(CodeTimeout, "request timed out; a write may still have applied")
-		}
-		return nil, newError(CodeTransport, "could not read the device response")
+		return nil, interrupted(ctx, err, "could not read the device response")
 	}
 
 	var envelope rpcEnvelope
 	if err := json.Unmarshal(text, &envelope); err != nil {
-		return nil, newError(CodeInvalidJSON, "device response was not valid JSON")
+		return nil, newError(CodeInvalidJSON, "device response was not valid JSON", err)
 	}
 	if envelope.JSONRPC != "2.0" || envelope.ID.String() != fmt.Sprint(RPCID) {
-		return nil, newError(CodeEnvelope, "unexpected JSON-RPC envelope or response ID")
+		return nil, newError(CodeEnvelope, "unexpected JSON-RPC envelope or response ID", nil)
 	}
 	if envelope.Error != nil {
-		return nil, newError(CodeRPCError, "device returned a JSON-RPC error")
+		return nil, newError(CodeRPCError, "device returned a JSON-RPC error", nil)
 	}
 	trimmed := bytes.TrimSpace(envelope.Result)
 	if len(trimmed) == 0 || trimmed[0] != '{' {
-		return nil, newError(CodeResultShape, "expected a JSON-RPC result object")
+		return nil, newError(CodeResultShape, "expected a JSON-RPC result object", nil)
 	}
 	return envelope.Result, nil
 }
