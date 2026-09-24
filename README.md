@@ -147,19 +147,25 @@ dt241m-controller/
 ├── config.yaml, Dockerfile    Home Assistant add-on packaging
 ├── fixtures/                  Captured DT241M responses (from the handoff)
 └── internal/
-    ├── controller/            Orchestration: probing, discovery, polling, per-MAC write queue, MQTT publishing
+    ├── controller/
+    │   ├── controller.go      Lifecycle, wiring, Rename
+    │   ├── discovery.go       Scans, polling, observation → registry
+    │   ├── write.go           ChangeChannel/ChangeSource: verify MAC → write → read back
+    │   ├── publish.go         Home Assistant presenter: registry state → retained MQTT
+    │   ├── probe.go, queue.go Bounded workers, per-MAC FIFO queue
+    │   └── types.go           Deps, Outcome, statuses, reasons
     ├── dt241m/                Protocol client, DeviceInfo parsing, TX/RX classification
-    ├── mqtt/                  Connection interface, paho.golang impl, topics, HA Discovery payloads, router
-    ├── registry/              In-memory adapter inventory keyed by MAC
+    ├── mqtt/                  Connection, paho.golang impl, topics, entity table → discovery payloads, router
+    ├── registry/              Adapter model, in-memory inventory keyed by MAC, derived source table
     ├── store/                 SQLite (modernc.org/sqlite) persistence with versioned migrations
     ├── config/                Options, scan-range validation, Supervisor MQTT lookup
     ├── mac/                   MAC normalisation (the identity used everywhere)
-    └── testutil/              Offline device simulator (http.RoundTripper), fake MQTT, fixtures
+    └── testutil/              Offline LAN simulator (http.RoundTripper), fake MQTT, memory store, fixtures
 ```
 
 ## Tests
 
-`go test -race ./...` runs 97 tests entirely offline against a simulated device network (an `http.RoundTripper` built from the captured fixtures). No test contacts real hardware or any historical device address. The suites cover the protocol contract, fixture parsing, classification, CIDR/config validation, the Supervisor MQTT lookup, registry behaviour, discovery, polling, DHCP identity safety, command ordering, hardware quirks, MQTT Discovery/behaviour and SQLite persistence/restart.
+`go test -race ./...` runs 99 tests entirely offline against a simulated device network (an `http.RoundTripper` built from the captured fixtures). No test contacts real hardware or any historical device address. A golden file (`internal/controller/testdata/discovery.golden.json`) pins every Home Assistant discovery payload; regenerate it with `go test ./internal/controller -run Golden -update` after an intentional change. The suites cover the protocol contract, fixture parsing, classification, CIDR/config validation, the Supervisor MQTT lookup, registry behaviour, discovery, polling, DHCP identity safety, command ordering, hardware quirks, MQTT Discovery/behaviour and SQLite persistence/restart.
 
 ## Limitations
 

@@ -1,0 +1,911 @@
+[
+  {
+    "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "dt241m/controller/availability"
+        }
+      ],
+      "command_topic": "dt241m/controller/rescan/press",
+      "device": {
+        "identifiers": [
+          "dt241m:controller"
+        ],
+        "manufacturer": "dt241m-controller add-on",
+        "model": "DT241M MQTT bridge",
+        "name": "DT241M Controller",
+        "sw_version": "test"
+      },
+      "icon": "mdi:radar",
+      "name": "Rescan network",
+      "object_id": "dt241m_controller_rescan",
+      "origin": {
+        "name": "DT241M Controller",
+        "support_url": "https://example.invalid",
+        "sw_version": "test"
+      },
+      "payload_press": "PRESS",
+      "qos": 1,
+      "retain": false,
+      "unique_id": "dt241m_controller_rescan"
+    },
+    "topic": "homeassistant/button/dt241m_controller/rescan/config"
+  },
+  {
+    "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "dt241m/controller/availability"
+        },
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "dt241m/device/aaaaaaaaaa01/availability"
+        }
+      ],
+      "availability_mode": "all",
+      "command_topic": "dt241m/device/aaaaaaaaaa01/channel/set",
+      "device": {
+        "connections": [
+          [
+            "mac",
+            "aa:aa:aa:aa:aa:01"
+          ]
+        ],
+        "identifiers": [
+          "dt241m:aaaaaaaaaa01"
+        ],
+        "manufacturer": "PWAY",
+        "model": "ProAVTx ET01",
+        "model_id": "am_8270_proavtx-eth_et01-pway-dt241",
+        "name": "Stage Camera",
+        "sw_version": "1.13471.133",
+        "via_device": "dt241m:controller"
+      },
+      "entity_category": "config",
+      "icon": "mdi:broadcast",
+      "max": 255,
+      "min": 0,
+      "mode": "box",
+      "name": "Channel",
+      "object_id": "dt241m_aaaaaaaaaa01_channel",
+      "optimistic": false,
+      "origin": {
+        "name": "DT241M Controller",
+        "support_url": "https://example.invalid",
+        "sw_version": "test"
+      },
+      "qos": 1,
+      "retain": false,
+      "state_topic": "dt241m/device/aaaaaaaaaa01/channel/state",
+      "step": 1,
+      "unique_id": "dt241m_aaaaaaaaaa01_channel"
+    },
+    "topic": "homeassistant/number/dt241m_aaaaaaaaaa01/channel/config"
+  },
+  {
+    "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "dt241m/controller/availability"
+        },
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "dt241m/device/aaaaaaaaaa02/availability"
+        }
+      ],
+      "availability_mode": "all",
+      "command_topic": "dt241m/device/aaaaaaaaaa02/channel/set",
+      "device": {
+        "connections": [
+          [
+            "mac",
+            "aa:aa:aa:aa:aa:02"
+          ]
+        ],
+        "identifiers": [
+          "dt241m:aaaaaaaaaa02"
+        ],
+        "manufacturer": "PWAY",
+        "model": "ProAVTx ET01",
+        "model_id": "am_8270_proavtx-eth_et01-pway-dt241",
+        "name": "Lectern PC",
+        "sw_version": "1.13471.133",
+        "via_device": "dt241m:controller"
+      },
+      "entity_category": "config",
+      "icon": "mdi:broadcast",
+      "max": 255,
+      "min": 0,
+      "mode": "box",
+      "name": "Channel",
+      "object_id": "dt241m_aaaaaaaaaa02_channel",
+      "optimistic": false,
+      "origin": {
+        "name": "DT241M Controller",
+        "support_url": "https://example.invalid",
+        "sw_version": "test"
+      },
+      "qos": 1,
+      "retain": false,
+      "state_topic": "dt241m/device/aaaaaaaaaa02/channel/state",
+      "step": 1,
+      "unique_id": "dt241m_aaaaaaaaaa02_channel"
+    },
+    "topic": "homeassistant/number/dt241m_aaaaaaaaaa02/channel/config"
+  },
+  {
+    "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "dt241m/controller/availability"
+        },
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "dt241m/device/fc19286cd6d8/availability"
+        }
+      ],
+      "availability_mode": "all",
+      "command_topic": "dt241m/device/fc19286cd6d8/channel/set",
+      "device": {
+        "connections": [
+          [
+            "mac",
+            "fc:19:28:6c:d6:d8"
+          ]
+        ],
+        "identifiers": [
+          "dt241m:fc19286cd6d8"
+        ],
+        "manufacturer": "PWAY",
+        "model": "ProAVRx ER01",
+        "model_id": "am_8270_proavrx-eth_er01-pway-dt241",
+        "name": "ER02_286CD6D8",
+        "sw_version": "1.13471.133",
+        "via_device": "dt241m:controller"
+      },
+      "icon": "mdi:monitor",
+      "max": 255,
+      "min": 0,
+      "mode": "box",
+      "name": "Channel",
+      "object_id": "dt241m_fc19286cd6d8_channel",
+      "optimistic": false,
+      "origin": {
+        "name": "DT241M Controller",
+        "support_url": "https://example.invalid",
+        "sw_version": "test"
+      },
+      "qos": 1,
+      "retain": false,
+      "state_topic": "dt241m/device/fc19286cd6d8/channel/state",
+      "step": 1,
+      "unique_id": "dt241m_fc19286cd6d8_channel"
+    },
+    "topic": "homeassistant/number/dt241m_fc19286cd6d8/channel/config"
+  },
+  {
+    "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "dt241m/controller/availability"
+        },
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "dt241m/device/fc19286cd6d8/availability"
+        }
+      ],
+      "availability_mode": "all",
+      "command_topic": "dt241m/device/fc19286cd6d8/source/set",
+      "device": {
+        "connections": [
+          [
+            "mac",
+            "fc:19:28:6c:d6:d8"
+          ]
+        ],
+        "identifiers": [
+          "dt241m:fc19286cd6d8"
+        ],
+        "manufacturer": "PWAY",
+        "model": "ProAVRx ER01",
+        "model_id": "am_8270_proavrx-eth_er01-pway-dt241",
+        "name": "ER02_286CD6D8",
+        "sw_version": "1.13471.133",
+        "via_device": "dt241m:controller"
+      },
+      "icon": "mdi:video-input-hdmi",
+      "name": "Source",
+      "object_id": "dt241m_fc19286cd6d8_source",
+      "optimistic": false,
+      "options": [
+        "Lectern PC",
+        "Stage Camera"
+      ],
+      "origin": {
+        "name": "DT241M Controller",
+        "support_url": "https://example.invalid",
+        "sw_version": "test"
+      },
+      "qos": 1,
+      "retain": false,
+      "state_topic": "dt241m/device/fc19286cd6d8/source/state",
+      "unique_id": "dt241m_fc19286cd6d8_source"
+    },
+    "topic": "homeassistant/select/dt241m_fc19286cd6d8/source/config"
+  },
+  {
+    "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "dt241m/controller/availability"
+        },
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "dt241m/device/aaaaaaaaaa01/availability"
+        }
+      ],
+      "availability_mode": "all",
+      "device": {
+        "connections": [
+          [
+            "mac",
+            "aa:aa:aa:aa:aa:01"
+          ]
+        ],
+        "identifiers": [
+          "dt241m:aaaaaaaaaa01"
+        ],
+        "manufacturer": "PWAY",
+        "model": "ProAVTx ET01",
+        "model_id": "am_8270_proavtx-eth_et01-pway-dt241",
+        "name": "Stage Camera",
+        "sw_version": "1.13471.133",
+        "via_device": "dt241m:controller"
+      },
+      "entity_category": "diagnostic",
+      "icon": "mdi:ip-network",
+      "name": "IP address",
+      "object_id": "dt241m_aaaaaaaaaa01_ip_address",
+      "origin": {
+        "name": "DT241M Controller",
+        "support_url": "https://example.invalid",
+        "sw_version": "test"
+      },
+      "state_topic": "dt241m/device/aaaaaaaaaa01/ip/state",
+      "unique_id": "dt241m_aaaaaaaaaa01_ip_address"
+    },
+    "topic": "homeassistant/sensor/dt241m_aaaaaaaaaa01/ip_address/config"
+  },
+  {
+    "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "dt241m/controller/availability"
+        },
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "dt241m/device/aaaaaaaaaa01/availability"
+        }
+      ],
+      "availability_mode": "all",
+      "device": {
+        "connections": [
+          [
+            "mac",
+            "aa:aa:aa:aa:aa:01"
+          ]
+        ],
+        "identifiers": [
+          "dt241m:aaaaaaaaaa01"
+        ],
+        "manufacturer": "PWAY",
+        "model": "ProAVTx ET01",
+        "model_id": "am_8270_proavtx-eth_et01-pway-dt241",
+        "name": "Stage Camera",
+        "sw_version": "1.13471.133",
+        "via_device": "dt241m:controller"
+      },
+      "entity_category": "diagnostic",
+      "icon": "mdi:swap-horizontal",
+      "name": "Role",
+      "object_id": "dt241m_aaaaaaaaaa01_role",
+      "origin": {
+        "name": "DT241M Controller",
+        "support_url": "https://example.invalid",
+        "sw_version": "test"
+      },
+      "state_topic": "dt241m/device/aaaaaaaaaa01/role/state",
+      "unique_id": "dt241m_aaaaaaaaaa01_role"
+    },
+    "topic": "homeassistant/sensor/dt241m_aaaaaaaaaa01/role/config"
+  },
+  {
+    "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "dt241m/controller/availability"
+        },
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "dt241m/device/aaaaaaaaaa02/availability"
+        }
+      ],
+      "availability_mode": "all",
+      "device": {
+        "connections": [
+          [
+            "mac",
+            "aa:aa:aa:aa:aa:02"
+          ]
+        ],
+        "identifiers": [
+          "dt241m:aaaaaaaaaa02"
+        ],
+        "manufacturer": "PWAY",
+        "model": "ProAVTx ET01",
+        "model_id": "am_8270_proavtx-eth_et01-pway-dt241",
+        "name": "Lectern PC",
+        "sw_version": "1.13471.133",
+        "via_device": "dt241m:controller"
+      },
+      "entity_category": "diagnostic",
+      "icon": "mdi:ip-network",
+      "name": "IP address",
+      "object_id": "dt241m_aaaaaaaaaa02_ip_address",
+      "origin": {
+        "name": "DT241M Controller",
+        "support_url": "https://example.invalid",
+        "sw_version": "test"
+      },
+      "state_topic": "dt241m/device/aaaaaaaaaa02/ip/state",
+      "unique_id": "dt241m_aaaaaaaaaa02_ip_address"
+    },
+    "topic": "homeassistant/sensor/dt241m_aaaaaaaaaa02/ip_address/config"
+  },
+  {
+    "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "dt241m/controller/availability"
+        },
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "dt241m/device/aaaaaaaaaa02/availability"
+        }
+      ],
+      "availability_mode": "all",
+      "device": {
+        "connections": [
+          [
+            "mac",
+            "aa:aa:aa:aa:aa:02"
+          ]
+        ],
+        "identifiers": [
+          "dt241m:aaaaaaaaaa02"
+        ],
+        "manufacturer": "PWAY",
+        "model": "ProAVTx ET01",
+        "model_id": "am_8270_proavtx-eth_et01-pway-dt241",
+        "name": "Lectern PC",
+        "sw_version": "1.13471.133",
+        "via_device": "dt241m:controller"
+      },
+      "entity_category": "diagnostic",
+      "icon": "mdi:swap-horizontal",
+      "name": "Role",
+      "object_id": "dt241m_aaaaaaaaaa02_role",
+      "origin": {
+        "name": "DT241M Controller",
+        "support_url": "https://example.invalid",
+        "sw_version": "test"
+      },
+      "state_topic": "dt241m/device/aaaaaaaaaa02/role/state",
+      "unique_id": "dt241m_aaaaaaaaaa02_role"
+    },
+    "topic": "homeassistant/sensor/dt241m_aaaaaaaaaa02/role/config"
+  },
+  {
+    "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "dt241m/controller/availability"
+        },
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "dt241m/device/cccccccccccc/availability"
+        }
+      ],
+      "availability_mode": "all",
+      "device": {
+        "connections": [
+          [
+            "mac",
+            "cc:cc:cc:cc:cc:cc"
+          ]
+        ],
+        "identifiers": [
+          "dt241m:cccccccccccc"
+        ],
+        "manufacturer": "PWAY",
+        "model": "Mystery",
+        "model_id": "unknown",
+        "name": "ER02_286CD6D8",
+        "sw_version": "1.13471.133",
+        "via_device": "dt241m:controller"
+      },
+      "icon": "mdi:help-network",
+      "name": "Channel",
+      "object_id": "dt241m_cccccccccccc_channel",
+      "origin": {
+        "name": "DT241M Controller",
+        "support_url": "https://example.invalid",
+        "sw_version": "test"
+      },
+      "state_topic": "dt241m/device/cccccccccccc/channel/state",
+      "unique_id": "dt241m_cccccccccccc_channel"
+    },
+    "topic": "homeassistant/sensor/dt241m_cccccccccccc/channel/config"
+  },
+  {
+    "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "dt241m/controller/availability"
+        },
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "dt241m/device/cccccccccccc/availability"
+        }
+      ],
+      "availability_mode": "all",
+      "device": {
+        "connections": [
+          [
+            "mac",
+            "cc:cc:cc:cc:cc:cc"
+          ]
+        ],
+        "identifiers": [
+          "dt241m:cccccccccccc"
+        ],
+        "manufacturer": "PWAY",
+        "model": "Mystery",
+        "model_id": "unknown",
+        "name": "ER02_286CD6D8",
+        "sw_version": "1.13471.133",
+        "via_device": "dt241m:controller"
+      },
+      "entity_category": "diagnostic",
+      "icon": "mdi:ip-network",
+      "name": "IP address",
+      "object_id": "dt241m_cccccccccccc_ip_address",
+      "origin": {
+        "name": "DT241M Controller",
+        "support_url": "https://example.invalid",
+        "sw_version": "test"
+      },
+      "state_topic": "dt241m/device/cccccccccccc/ip/state",
+      "unique_id": "dt241m_cccccccccccc_ip_address"
+    },
+    "topic": "homeassistant/sensor/dt241m_cccccccccccc/ip_address/config"
+  },
+  {
+    "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "dt241m/controller/availability"
+        },
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "dt241m/device/cccccccccccc/availability"
+        }
+      ],
+      "availability_mode": "all",
+      "device": {
+        "connections": [
+          [
+            "mac",
+            "cc:cc:cc:cc:cc:cc"
+          ]
+        ],
+        "identifiers": [
+          "dt241m:cccccccccccc"
+        ],
+        "manufacturer": "PWAY",
+        "model": "Mystery",
+        "model_id": "unknown",
+        "name": "ER02_286CD6D8",
+        "sw_version": "1.13471.133",
+        "via_device": "dt241m:controller"
+      },
+      "entity_category": "diagnostic",
+      "icon": "mdi:swap-horizontal",
+      "name": "Role",
+      "object_id": "dt241m_cccccccccccc_role",
+      "origin": {
+        "name": "DT241M Controller",
+        "support_url": "https://example.invalid",
+        "sw_version": "test"
+      },
+      "state_topic": "dt241m/device/cccccccccccc/role/state",
+      "unique_id": "dt241m_cccccccccccc_role"
+    },
+    "topic": "homeassistant/sensor/dt241m_cccccccccccc/role/config"
+  },
+  {
+    "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "dt241m/controller/availability"
+        }
+      ],
+      "device": {
+        "identifiers": [
+          "dt241m:controller"
+        ],
+        "manufacturer": "dt241m-controller add-on",
+        "model": "DT241M MQTT bridge",
+        "name": "DT241M Controller",
+        "sw_version": "test"
+      },
+      "icon": "mdi:video-switch",
+      "name": "Known devices",
+      "object_id": "dt241m_controller_known_devices",
+      "origin": {
+        "name": "DT241M Controller",
+        "support_url": "https://example.invalid",
+        "sw_version": "test"
+      },
+      "state_class": "measurement",
+      "state_topic": "dt241m/controller/known_devices/state",
+      "unique_id": "dt241m_controller_known_devices"
+    },
+    "topic": "homeassistant/sensor/dt241m_controller/known_devices/config"
+  },
+  {
+    "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "dt241m/controller/availability"
+        }
+      ],
+      "device": {
+        "identifiers": [
+          "dt241m:controller"
+        ],
+        "manufacturer": "dt241m-controller add-on",
+        "model": "DT241M MQTT bridge",
+        "name": "DT241M Controller",
+        "sw_version": "test"
+      },
+      "icon": "mdi:video-switch",
+      "name": "Online devices",
+      "object_id": "dt241m_controller_online_devices",
+      "origin": {
+        "name": "DT241M Controller",
+        "support_url": "https://example.invalid",
+        "sw_version": "test"
+      },
+      "state_class": "measurement",
+      "state_topic": "dt241m/controller/online_devices/state",
+      "unique_id": "dt241m_controller_online_devices"
+    },
+    "topic": "homeassistant/sensor/dt241m_controller/online_devices/config"
+  },
+  {
+    "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "dt241m/controller/availability"
+        },
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "dt241m/device/fc19286cd6d8/availability"
+        }
+      ],
+      "availability_mode": "all",
+      "device": {
+        "connections": [
+          [
+            "mac",
+            "fc:19:28:6c:d6:d8"
+          ]
+        ],
+        "identifiers": [
+          "dt241m:fc19286cd6d8"
+        ],
+        "manufacturer": "PWAY",
+        "model": "ProAVRx ER01",
+        "model_id": "am_8270_proavrx-eth_er01-pway-dt241",
+        "name": "ER02_286CD6D8",
+        "sw_version": "1.13471.133",
+        "via_device": "dt241m:controller"
+      },
+      "entity_category": "diagnostic",
+      "icon": "mdi:ip-network",
+      "name": "IP address",
+      "object_id": "dt241m_fc19286cd6d8_ip_address",
+      "origin": {
+        "name": "DT241M Controller",
+        "support_url": "https://example.invalid",
+        "sw_version": "test"
+      },
+      "state_topic": "dt241m/device/fc19286cd6d8/ip/state",
+      "unique_id": "dt241m_fc19286cd6d8_ip_address"
+    },
+    "topic": "homeassistant/sensor/dt241m_fc19286cd6d8/ip_address/config"
+  },
+  {
+    "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "dt241m/controller/availability"
+        },
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "dt241m/device/fc19286cd6d8/availability"
+        }
+      ],
+      "availability_mode": "all",
+      "device": {
+        "connections": [
+          [
+            "mac",
+            "fc:19:28:6c:d6:d8"
+          ]
+        ],
+        "identifiers": [
+          "dt241m:fc19286cd6d8"
+        ],
+        "manufacturer": "PWAY",
+        "model": "ProAVRx ER01",
+        "model_id": "am_8270_proavrx-eth_er01-pway-dt241",
+        "name": "ER02_286CD6D8",
+        "sw_version": "1.13471.133",
+        "via_device": "dt241m:controller"
+      },
+      "entity_category": "diagnostic",
+      "icon": "mdi:swap-horizontal",
+      "name": "Role",
+      "object_id": "dt241m_fc19286cd6d8_role",
+      "origin": {
+        "name": "DT241M Controller",
+        "support_url": "https://example.invalid",
+        "sw_version": "test"
+      },
+      "state_topic": "dt241m/device/fc19286cd6d8/role/state",
+      "unique_id": "dt241m_fc19286cd6d8_role"
+    },
+    "topic": "homeassistant/sensor/dt241m_fc19286cd6d8/role/config"
+  },
+  {
+    "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "dt241m/controller/availability"
+        }
+      ],
+      "command_topic": "dt241m/device/aaaaaaaaaa01/name/set",
+      "device": {
+        "connections": [
+          [
+            "mac",
+            "aa:aa:aa:aa:aa:01"
+          ]
+        ],
+        "identifiers": [
+          "dt241m:aaaaaaaaaa01"
+        ],
+        "manufacturer": "PWAY",
+        "model": "ProAVTx ET01",
+        "model_id": "am_8270_proavtx-eth_et01-pway-dt241",
+        "name": "Stage Camera",
+        "sw_version": "1.13471.133",
+        "via_device": "dt241m:controller"
+      },
+      "entity_category": "config",
+      "icon": "mdi:rename-box",
+      "max": 64,
+      "min": 0,
+      "mode": "text",
+      "name": "Name",
+      "object_id": "dt241m_aaaaaaaaaa01_name",
+      "origin": {
+        "name": "DT241M Controller",
+        "support_url": "https://example.invalid",
+        "sw_version": "test"
+      },
+      "qos": 1,
+      "retain": false,
+      "state_topic": "dt241m/device/aaaaaaaaaa01/name/state",
+      "unique_id": "dt241m_aaaaaaaaaa01_name"
+    },
+    "topic": "homeassistant/text/dt241m_aaaaaaaaaa01/name/config"
+  },
+  {
+    "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "dt241m/controller/availability"
+        }
+      ],
+      "command_topic": "dt241m/device/aaaaaaaaaa02/name/set",
+      "device": {
+        "connections": [
+          [
+            "mac",
+            "aa:aa:aa:aa:aa:02"
+          ]
+        ],
+        "identifiers": [
+          "dt241m:aaaaaaaaaa02"
+        ],
+        "manufacturer": "PWAY",
+        "model": "ProAVTx ET01",
+        "model_id": "am_8270_proavtx-eth_et01-pway-dt241",
+        "name": "Lectern PC",
+        "sw_version": "1.13471.133",
+        "via_device": "dt241m:controller"
+      },
+      "entity_category": "config",
+      "icon": "mdi:rename-box",
+      "max": 64,
+      "min": 0,
+      "mode": "text",
+      "name": "Name",
+      "object_id": "dt241m_aaaaaaaaaa02_name",
+      "origin": {
+        "name": "DT241M Controller",
+        "support_url": "https://example.invalid",
+        "sw_version": "test"
+      },
+      "qos": 1,
+      "retain": false,
+      "state_topic": "dt241m/device/aaaaaaaaaa02/name/state",
+      "unique_id": "dt241m_aaaaaaaaaa02_name"
+    },
+    "topic": "homeassistant/text/dt241m_aaaaaaaaaa02/name/config"
+  },
+  {
+    "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "dt241m/controller/availability"
+        }
+      ],
+      "command_topic": "dt241m/device/cccccccccccc/name/set",
+      "device": {
+        "connections": [
+          [
+            "mac",
+            "cc:cc:cc:cc:cc:cc"
+          ]
+        ],
+        "identifiers": [
+          "dt241m:cccccccccccc"
+        ],
+        "manufacturer": "PWAY",
+        "model": "Mystery",
+        "model_id": "unknown",
+        "name": "ER02_286CD6D8",
+        "sw_version": "1.13471.133",
+        "via_device": "dt241m:controller"
+      },
+      "entity_category": "config",
+      "icon": "mdi:rename-box",
+      "max": 64,
+      "min": 0,
+      "mode": "text",
+      "name": "Name",
+      "object_id": "dt241m_cccccccccccc_name",
+      "origin": {
+        "name": "DT241M Controller",
+        "support_url": "https://example.invalid",
+        "sw_version": "test"
+      },
+      "qos": 1,
+      "retain": false,
+      "state_topic": "dt241m/device/cccccccccccc/name/state",
+      "unique_id": "dt241m_cccccccccccc_name"
+    },
+    "topic": "homeassistant/text/dt241m_cccccccccccc/name/config"
+  },
+  {
+    "payload": {
+      "availability": [
+        {
+          "payload_available": "online",
+          "payload_not_available": "offline",
+          "topic": "dt241m/controller/availability"
+        }
+      ],
+      "command_topic": "dt241m/device/fc19286cd6d8/name/set",
+      "device": {
+        "connections": [
+          [
+            "mac",
+            "fc:19:28:6c:d6:d8"
+          ]
+        ],
+        "identifiers": [
+          "dt241m:fc19286cd6d8"
+        ],
+        "manufacturer": "PWAY",
+        "model": "ProAVRx ER01",
+        "model_id": "am_8270_proavrx-eth_er01-pway-dt241",
+        "name": "ER02_286CD6D8",
+        "sw_version": "1.13471.133",
+        "via_device": "dt241m:controller"
+      },
+      "entity_category": "config",
+      "icon": "mdi:rename-box",
+      "max": 64,
+      "min": 0,
+      "mode": "text",
+      "name": "Name",
+      "object_id": "dt241m_fc19286cd6d8_name",
+      "origin": {
+        "name": "DT241M Controller",
+        "support_url": "https://example.invalid",
+        "sw_version": "test"
+      },
+      "qos": 1,
+      "retain": false,
+      "state_topic": "dt241m/device/fc19286cd6d8/name/state",
+      "unique_id": "dt241m_fc19286cd6d8_name"
+    },
+    "topic": "homeassistant/text/dt241m_fc19286cd6d8/name/config"
+  }
+]

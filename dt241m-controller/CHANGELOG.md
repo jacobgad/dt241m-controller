@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.1.1
+
+- Fix a race where two transmitters discovered at the same moment could leave receivers' **Source** option lists missing a transmitter until the next change
+- Internal restructure by responsibility (discovery, write, publish) and table-driven discovery payloads; no user-visible change
+
 ## 2.1.0
 
 - New **Source** select on every receiver: choose a transmitter by name instead of remembering its channel. Options are the transmitters' names (user name if set, otherwise the hardware name); duplicates are shown as `Name (ch N)`. When no transmitter uses the receiver's channel the select has no selection (Home Assistant shows *Unknown*); `none` is never offered as an option.

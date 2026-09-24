@@ -8,6 +8,32 @@ import (
 	"github.com/jacobgad/dt241m-controller/internal/dt241m"
 )
 
+// forEach calls fn for every item with at most limit goroutines, stopping early once ctx ends.
+func forEach[T any](ctx context.Context, items []T, limit int, fn func(T)) {
+	workers := max(1, min(limit, len(items)))
+	queue := make(chan T)
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for item := range queue {
+				if ctx.Err() == nil {
+					fn(item)
+				}
+			}
+		}()
+	}
+	for _, item := range items {
+		if ctx.Err() != nil {
+			break
+		}
+		queue <- item
+	}
+	close(queue)
+	wg.Wait()
+}
+
 // Hit is a device that answered a probe.
 type Hit struct {
 	IP   string
@@ -24,32 +50,12 @@ type ProbeOptions struct {
 // Probe sends get_device_info_proav to every address with bounded concurrency and
 // reports each answer through OnHit. Addresses that do not answer are simply skipped.
 func Probe(ctx context.Context, client dt241m.Client, ips []string, opts ProbeOptions) {
-	workers := max(1, min(opts.Concurrency, len(ips)))
-	queue := make(chan string)
-	var wg sync.WaitGroup
-	for range workers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for ip := range queue {
-				if ctx.Err() != nil {
-					continue
-				}
-				probeCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
-				info, err := client.GetDeviceInfo(probeCtx, ip)
-				cancel()
-				if err == nil && opts.OnHit != nil {
-					opts.OnHit(Hit{IP: ip, Info: info})
-				}
-			}
-		}()
-	}
-	for _, ip := range ips {
-		if ctx.Err() != nil {
-			break
+	forEach(ctx, ips, opts.Concurrency, func(ip string) {
+		probeCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
+		defer cancel()
+		info, err := client.GetDeviceInfo(probeCtx, ip)
+		if err == nil && opts.OnHit != nil {
+			opts.OnHit(Hit{IP: ip, Info: info})
 		}
-		queue <- ip
-	}
-	close(queue)
-	wg.Wait()
+	})
 }

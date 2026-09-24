@@ -28,9 +28,7 @@ func (m Message) JSON() string {
 const (
 	manufacturer   = "PWAY"
 	controllerName = "DT241M Controller"
-)
 
-const (
 	iconController = "mdi:video-switch"
 	iconRescan     = "mdi:radar"
 	iconName       = "mdi:rename-box"
@@ -48,6 +46,179 @@ func roleIcon(role dt241m.Role) string {
 	default:
 		return "mdi:help-network"
 	}
+}
+
+// entity describes one Home Assistant entity of an adapter. The common envelope
+// (ids, device, origin, availability) is added by build; fields supplies the rest.
+type entity struct {
+	component string
+	object    string
+	name      string
+	category  string
+	icon      func(registry.Adapter) string
+	// controllerOnly entities stay available while the device is offline (the Name text).
+	controllerOnly bool
+	fields         func(t DeviceTopics, sourceOptions []string) map[string]any
+}
+
+func staticIcon(icon string) func(registry.Adapter) string {
+	return func(registry.Adapter) string { return icon }
+}
+
+func channelNumber(category string) entity {
+	return entity{
+		component: "number", object: "channel", name: "Channel", category: category,
+		icon: func(a registry.Adapter) string { return roleIcon(a.Role) },
+		fields: func(t DeviceTopics, _ []string) map[string]any {
+			return map[string]any{
+				"state_topic":   t.ChannelState,
+				"command_topic": t.ChannelSet,
+				"min":           dt241m.MinChannel,
+				"max":           dt241m.MaxChannel,
+				"step":          1,
+				"mode":          "box",
+				"optimistic":    false,
+				"retain":        false,
+				"qos":           1,
+			}
+		},
+	}
+}
+
+var (
+	receiverChannel    = channelNumber("")
+	transmitterChannel = channelNumber("config")
+
+	channelSensor = entity{
+		component: "sensor", object: "channel", name: "Channel",
+		icon: func(a registry.Adapter) string { return roleIcon(a.Role) },
+		fields: func(t DeviceTopics, _ []string) map[string]any {
+			return map[string]any{"state_topic": t.ChannelState}
+		},
+	}
+
+	sourceSelect = entity{
+		component: "select", object: "source", name: "Source", icon: staticIcon(iconSource),
+		fields: func(t DeviceTopics, options []string) map[string]any {
+			if options == nil {
+				options = []string{}
+			}
+			return map[string]any{
+				"state_topic":   t.SourceState,
+				"command_topic": t.SourceSet,
+				"options":       options,
+				"optimistic":    false,
+				"retain":        false,
+				"qos":           1,
+			}
+		},
+	}
+
+	nameText = entity{
+		component: "text", object: "name", name: "Name", category: "config", icon: staticIcon(iconName),
+		controllerOnly: true,
+		fields: func(t DeviceTopics, _ []string) map[string]any {
+			return map[string]any{
+				"state_topic":   t.NameState,
+				"command_topic": t.NameSet,
+				"min":           0,
+				"max":           registry.MaxNameLength,
+				"mode":          "text",
+				"retain":        false,
+				"qos":           1,
+			}
+		},
+	}
+
+	ipSensor = entity{
+		component: "sensor", object: "ip_address", name: "IP address", category: "diagnostic", icon: staticIcon(iconIP),
+		fields: func(t DeviceTopics, _ []string) map[string]any {
+			return map[string]any{"state_topic": t.IPState}
+		},
+	}
+
+	roleSensor = entity{
+		component: "sensor", object: "role", name: "Role", category: "diagnostic", icon: staticIcon(iconRole),
+		fields: func(t DeviceTopics, _ []string) map[string]any {
+			return map[string]any{"state_topic": t.RoleState}
+		},
+	}
+)
+
+// entitiesFor lists the entities an adapter exposes in its current role.
+func entitiesFor(role dt241m.Role) []entity {
+	common := []entity{nameText, ipSensor, roleSensor}
+	switch role {
+	case dt241m.RoleReceiver:
+		return append(common, receiverChannel, sourceSelect)
+	case dt241m.RoleTransmitter:
+		return append(common, transmitterChannel)
+	default:
+		return append(common, channelSensor)
+	}
+}
+
+// StaleTopics are config topics an adapter does not use in its current role, cleared so a
+// unique_id never lingers under another platform after a role flip or the 2.0 → 2.1 move
+// of the transmitter channel from sensor to number.
+func StaleTopics(a registry.Adapter) []string {
+	all := []entity{receiverChannel, channelSensor, sourceSelect}
+	var stale []string
+	for _, candidate := range all {
+		if !containsEntity(entitiesFor(a.Role), candidate) {
+			stale = append(stale, HADiscoveryTopic(candidate.component, DeviceNodeID(a.MAC), candidate.object))
+		}
+	}
+	return stale
+}
+
+func containsEntity(list []entity, e entity) bool {
+	for _, item := range list {
+		if item.component == e.component && item.object == e.object {
+			return true
+		}
+	}
+	return false
+}
+
+func build(a registry.Adapter, e entity, sourceOptions []string, o Origin) Message {
+	topics := ForDevice(a.MAC)
+	payload := e.fields(topics, sourceOptions)
+	payload["name"] = e.name
+	payload["unique_id"] = a.ID + "_" + e.object
+	payload["object_id"] = a.ID + "_" + e.object
+	payload["icon"] = e.icon(a)
+	payload["device"] = adapterDevice(a)
+	payload["origin"] = origin(o)
+	if e.category != "" {
+		payload["entity_category"] = e.category
+	}
+	if e.controllerOnly {
+		payload["availability"] = []map[string]any{controllerAvailability()}
+	} else {
+		payload["availability"] = []map[string]any{
+			controllerAvailability(),
+			{"topic": topics.Availability, "payload_available": PayloadOnline, "payload_not_available": PayloadOffline},
+		}
+		payload["availability_mode"] = "all"
+	}
+	return Message{Topic: HADiscoveryTopic(e.component, DeviceNodeID(a.MAC), e.object), Payload: payload}
+}
+
+// AdapterMessages lists every entity published for an adapter; sourceOptions feeds receivers' Source select.
+func AdapterMessages(a registry.Adapter, sourceOptions []string, o Origin) []Message {
+	specs := entitiesFor(a.Role)
+	out := make([]Message, 0, len(specs))
+	for _, e := range specs {
+		out = append(out, build(a, e, sourceOptions, o))
+	}
+	return out
+}
+
+// ReceiverSource is the Source select on a receiver, rebuilt on its own whenever the
+// transmitter catalogue changes.
+func ReceiverSource(a registry.Adapter, options []string, o Origin) Message {
+	return build(a, sourceSelect, options, o)
 }
 
 func origin(o Origin) map[string]any {
@@ -93,215 +264,27 @@ func adapterDevice(a registry.Adapter) map[string]any {
 	return device
 }
 
-func withAdapterAvailability(a registry.Adapter, payload map[string]any) map[string]any {
-	payload["availability"] = []map[string]any{
-		controllerAvailability(),
-		{"topic": ForDevice(a.MAC).Availability, "payload_available": PayloadOnline, "payload_not_available": PayloadOffline},
-	}
-	payload["availability_mode"] = "all"
-	return payload
-}
-
-// ReceiverChannel is the writable Channel number entity for a receiver.
-func ReceiverChannel(a registry.Adapter, o Origin) Message {
-	t := ForDevice(a.MAC)
-	return Message{
-		Topic: HADiscoveryTopic("number", DeviceNodeID(a.MAC), "channel"),
-		Payload: withAdapterAvailability(a, map[string]any{
-			"name":          "Channel",
-			"unique_id":     a.ID + "_channel",
-			"object_id":     a.ID + "_channel",
-			"state_topic":   t.ChannelState,
-			"command_topic": t.ChannelSet,
-			"min":           dt241m.MinChannel,
-			"max":           dt241m.MaxChannel,
-			"step":          1,
-			"mode":          "box",
-			"optimistic":    false,
-			"retain":        false,
-			"qos":           1,
-			"icon":          roleIcon(dt241m.RoleReceiver),
-			"device":        adapterDevice(a),
-			"origin":        origin(o),
-		}),
-	}
-}
-
-// TransmitterChannel is the writable Channel number for a transmitter. It is a
-// configuration entity: changing it re-routes every receiver watching that transmitter.
-func TransmitterChannel(a registry.Adapter, o Origin) Message {
-	t := ForDevice(a.MAC)
-	return Message{
-		Topic: HADiscoveryTopic("number", DeviceNodeID(a.MAC), "channel"),
-		Payload: withAdapterAvailability(a, map[string]any{
-			"name":            "Channel",
-			"unique_id":       a.ID + "_channel",
-			"object_id":       a.ID + "_channel",
-			"state_topic":     t.ChannelState,
-			"command_topic":   t.ChannelSet,
-			"min":             dt241m.MinChannel,
-			"max":             dt241m.MaxChannel,
-			"step":            1,
-			"mode":            "box",
-			"optimistic":      false,
-			"retain":          false,
-			"qos":             1,
-			"entity_category": "config",
-			"icon":            roleIcon(dt241m.RoleTransmitter),
-			"device":          adapterDevice(a),
-			"origin":          origin(o),
-		}),
-	}
-}
-
-// ReceiverSource is the Source select on a receiver: pick a transmitter by name instead
-// of remembering its channel. The state is "none" when no transmitter uses the channel.
-func ReceiverSource(a registry.Adapter, options []string, o Origin) Message {
-	t := ForDevice(a.MAC)
-	if options == nil {
-		options = []string{}
-	}
-	return Message{
-		Topic: HADiscoveryTopic("select", DeviceNodeID(a.MAC), "source"),
-		Payload: withAdapterAvailability(a, map[string]any{
-			"name":          "Source",
-			"unique_id":     a.ID + "_source",
-			"object_id":     a.ID + "_source",
-			"state_topic":   t.SourceState,
-			"command_topic": t.SourceSet,
-			"options":       options,
-			"optimistic":    false,
-			"retain":        false,
-			"qos":           1,
-			"icon":          iconSource,
-			"device":        adapterDevice(a),
-			"origin":        origin(o),
-		}),
-	}
-}
-
-// ReadOnlyChannel is the Channel sensor for devices whose role could not be determined.
-func ReadOnlyChannel(a registry.Adapter, o Origin) Message {
-	t := ForDevice(a.MAC)
-	return Message{
-		Topic: HADiscoveryTopic("sensor", DeviceNodeID(a.MAC), "channel"),
-		Payload: withAdapterAvailability(a, map[string]any{
-			"name":        "Channel",
-			"unique_id":   a.ID + "_channel",
-			"object_id":   a.ID + "_channel",
-			"state_topic": t.ChannelState,
-			"icon":        roleIcon(a.Role),
-			"device":      adapterDevice(a),
-			"origin":      origin(o),
-		}),
-	}
-}
-
-// Name is the writable Name text entity; available whenever the controller is, so offline devices can still be renamed.
-func Name(a registry.Adapter, o Origin) Message {
-	t := ForDevice(a.MAC)
-	return Message{
-		Topic: HADiscoveryTopic("text", DeviceNodeID(a.MAC), "name"),
-		Payload: map[string]any{
-			"name":            "Name",
-			"unique_id":       a.ID + "_name",
-			"object_id":       a.ID + "_name",
-			"state_topic":     t.NameState,
-			"command_topic":   t.NameSet,
-			"min":             0,
-			"max":             registry.MaxNameLength,
-			"mode":            "text",
-			"retain":          false,
-			"qos":             1,
-			"entity_category": "config",
-			"icon":            iconName,
-			"availability":    []map[string]any{controllerAvailability()},
-			"device":          adapterDevice(a),
-			"origin":          origin(o),
+// ControllerMessages lists the controller device's entities.
+func ControllerMessages(o Origin) []Message {
+	return []Message{
+		{
+			Topic: HADiscoveryTopic("button", ControllerNodeID, "rescan"),
+			Payload: map[string]any{
+				"name":          "Rescan network",
+				"unique_id":     ControllerNodeID + "_rescan",
+				"object_id":     ControllerNodeID + "_rescan",
+				"command_topic": ControllerRescanPress,
+				"payload_press": PayloadPress,
+				"retain":        false,
+				"qos":           1,
+				"icon":          iconRescan,
+				"availability":  []map[string]any{controllerAvailability()},
+				"device":        controllerDevice(o),
+				"origin":        origin(o),
+			},
 		},
-	}
-}
-
-// IPAddress is the diagnostic IP sensor.
-func IPAddress(a registry.Adapter, o Origin) Message {
-	return Message{
-		Topic: HADiscoveryTopic("sensor", DeviceNodeID(a.MAC), "ip_address"),
-		Payload: withAdapterAvailability(a, map[string]any{
-			"name":            "IP address",
-			"unique_id":       a.ID + "_ip_address",
-			"object_id":       a.ID + "_ip_address",
-			"state_topic":     ForDevice(a.MAC).IPState,
-			"entity_category": "diagnostic",
-			"icon":            iconIP,
-			"device":          adapterDevice(a),
-			"origin":          origin(o),
-		}),
-	}
-}
-
-// Role is the diagnostic Role sensor.
-func Role(a registry.Adapter, o Origin) Message {
-	return Message{
-		Topic: HADiscoveryTopic("sensor", DeviceNodeID(a.MAC), "role"),
-		Payload: withAdapterAvailability(a, map[string]any{
-			"name":            "Role",
-			"unique_id":       a.ID + "_role",
-			"object_id":       a.ID + "_role",
-			"state_topic":     ForDevice(a.MAC).RoleState,
-			"entity_category": "diagnostic",
-			"icon":            iconRole,
-			"device":          adapterDevice(a),
-			"origin":          origin(o),
-		}),
-	}
-}
-
-// AdapterMessages lists every entity published for an adapter; sourceOptions is only used for receivers.
-func AdapterMessages(a registry.Adapter, sourceOptions []string, o Origin) []Message {
-	messages := []Message{Name(a, o), IPAddress(a, o), Role(a, o)}
-	switch a.Role {
-	case dt241m.RoleReceiver:
-		messages = append(messages, ReceiverChannel(a, o), ReceiverSource(a, sourceOptions, o))
-	case dt241m.RoleTransmitter:
-		messages = append(messages, TransmitterChannel(a, o))
-	default:
-		messages = append(messages, ReadOnlyChannel(a, o))
-	}
-	return messages
-}
-
-// StaleTopics are config topics that must be cleared for an adapter in its current role,
-// so that a unique_id never lingers under a platform it no longer uses (role flips, and
-// the 2.0 → 2.1 move of the transmitter channel from sensor to number).
-func StaleTopics(a registry.Adapter) []string {
-	node := DeviceNodeID(a.MAC)
-	switch a.Role {
-	case dt241m.RoleReceiver:
-		return []string{HADiscoveryTopic("sensor", node, "channel")}
-	case dt241m.RoleTransmitter:
-		return []string{HADiscoveryTopic("sensor", node, "channel"), HADiscoveryTopic("select", node, "source")}
-	default:
-		return []string{HADiscoveryTopic("number", node, "channel"), HADiscoveryTopic("select", node, "source")}
-	}
-}
-
-// RescanButton is the controller's Rescan network button.
-func RescanButton(o Origin) Message {
-	return Message{
-		Topic: HADiscoveryTopic("button", ControllerNodeID, "rescan"),
-		Payload: map[string]any{
-			"name":          "Rescan network",
-			"unique_id":     ControllerNodeID + "_rescan",
-			"object_id":     ControllerNodeID + "_rescan",
-			"command_topic": ControllerRescanPress,
-			"payload_press": PayloadPress,
-			"retain":        false,
-			"qos":           1,
-			"icon":          iconRescan,
-			"availability":  []map[string]any{controllerAvailability()},
-			"device":        controllerDevice(o),
-			"origin":        origin(o),
-		},
+		countSensor(o, "known_devices", "Known devices", ControllerKnownState),
+		countSensor(o, "online_devices", "Online devices", ControllerOnlineState),
 	}
 }
 
@@ -319,14 +302,5 @@ func countSensor(o Origin, objectID, name, stateTopic string) Message {
 			"device":       controllerDevice(o),
 			"origin":       origin(o),
 		},
-	}
-}
-
-// ControllerMessages lists the controller device's entities.
-func ControllerMessages(o Origin) []Message {
-	return []Message{
-		RescanButton(o),
-		countSensor(o, "known_devices", "Known devices", ControllerKnownState),
-		countSensor(o, "online_devices", "Online devices", ControllerOnlineState),
 	}
 }
