@@ -54,11 +54,13 @@ Every DT241M unit is identified by its MAC address, which is reported by the dev
 
 Each adapter appears in Home Assistant as a device under a **DT241M Controller** parent device:
 
-| Role | Entities |
-| --- | --- |
-| Receiver (`ProAVRx`) | **Channel** (number, writable), **Name** (text), **IP address** (diagnostic) |
-| Transmitter (`ProAVTx`) | **Channel** (sensor, read-only), **Name** (text), **IP address** (diagnostic) |
-| Unknown | Same as transmitter |
+| Role | Icon | Entities |
+| --- | --- | --- |
+| Receiver (`ProAVRx`) | monitor | **Channel** (number, writable), **Name** (text), **IP address** and **Role** (diagnostic) |
+| Transmitter (`ProAVTx`) | broadcast | **Channel** (sensor, read-only), **Name** (text), **IP address** and **Role** (diagnostic) |
+| Unknown | question mark | Same as transmitter |
+
+The **Role** sensor reports `receiver`, `transmitter` or `unknown` and can be used in templates and dashboard filters (for example an `auto-entities` card listing every receiver).
 
 Role classification uses the device-reported `product_name` and `model`. Anything that cannot be confidently classified is treated as `unknown` and never receives channel writes.
 

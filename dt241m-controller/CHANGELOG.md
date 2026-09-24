@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.1
+
+- Receivers, transmitters, unknown devices and the controller now use distinct icons (monitor, broadcast, question mark, video switch)
+- New read-only **Role** diagnostic sensor on every adapter (`receiver` / `transmitter` / `unknown`) for dashboard filters and templates
+
 ## 1.0.0
 
 Initial release. Discovery, polling and receiver channel switching validated against a live 16-unit DT241M installation on firmware `1.13471.133`.

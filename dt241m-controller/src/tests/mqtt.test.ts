@@ -59,8 +59,22 @@ describe("MQTT discovery payloads", () => {
       state_topic: `dt241m/device/fc19286cd291/channel/state`
     });
     expect(config["command_topic"]).toBeUndefined();
+    expect(config["icon"]).toBe("mdi:broadcast");
+    expect(configs.get(`homeassistant/number/${RX_ID}/channel/config`)?.["icon"]).toBe("mdi:monitor");
     expect(configs.has(`homeassistant/number/${TX_ID}/channel/config`)).toBe(false);
     expect(config["device"]).toMatchObject({ identifiers: ["dt241m:fc19286cd291"], name: "ET01_286CD291", model: "ProAVTx ET01" });
+  });
+
+  it("publishes a Role diagnostic sensor per adapter", async () => {
+    const { h } = await discoveredHarness();
+    const configs = h.mqtt.discoveryConfigs();
+    expect(configs.get(`homeassistant/sensor/${RX_ID}/role/config`)).toMatchObject({
+      unique_id: `${RX_ID}_role`,
+      state_topic: `dt241m/device/fc19286cd6d8/role/state`,
+      entity_category: "diagnostic"
+    });
+    expect(h.mqtt.lastOn(deviceTopics(RX_FIXTURE_MAC).roleState)?.payload).toBe("receiver");
+    expect(h.mqtt.lastOn(deviceTopics(TX_FIXTURE_MAC).roleState)?.payload).toBe("transmitter");
   });
 
   it("publishes the controller rescan button and count sensors", async () => {

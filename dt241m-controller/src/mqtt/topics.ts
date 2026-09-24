@@ -25,6 +25,7 @@ export type DeviceTopics = {
   nameState: string;
   nameSet: string;
   ipState: string;
+  roleState: string;
 };
 
 export function deviceTopics(mac: string): DeviceTopics {
@@ -35,7 +36,8 @@ export function deviceTopics(mac: string): DeviceTopics {
     channelSet: `${base}/channel/set`,
     nameState: `${base}/name/state`,
     nameSet: `${base}/name/set`,
-    ipState: `${base}/ip/state`
+    ipState: `${base}/ip/state`,
+    roleState: `${base}/role/state`
   };
 }
 

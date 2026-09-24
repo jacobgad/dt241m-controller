@@ -22,6 +22,17 @@ export type DiscoveryContext = {
 const MANUFACTURER = "PWAY";
 const CONTROLLER_NAME = "DT241M Controller";
 
+export const ICONS = {
+  receiver: "mdi:monitor",
+  transmitter: "mdi:broadcast",
+  unknown: "mdi:help-network",
+  controller: "mdi:video-switch",
+  rescan: "mdi:radar",
+  name: "mdi:rename-box",
+  ip: "mdi:ip-network",
+  role: "mdi:swap-horizontal"
+} as const;
+
 function origin(ctx: DiscoveryContext) {
   return { name: CONTROLLER_NAME, sw_version: ctx.version, support_url: ctx.supportUrl };
 }
@@ -85,7 +96,7 @@ export function receiverChannelDiscovery(adapter: Adapter, ctx: DiscoveryContext
       optimistic: false,
       retain: false,
       qos: 1,
-      icon: "mdi:video-input-hdmi",
+      icon: ICONS.receiver,
       ...adapterAvailability(adapter),
       device: adapterDevice(adapter),
       origin: origin(ctx)
@@ -102,7 +113,7 @@ export function readOnlyChannelDiscovery(adapter: Adapter, ctx: DiscoveryContext
       unique_id: `${adapter.id}_channel`,
       object_id: `${adapter.id}_channel`,
       state_topic: topics.channelState,
-      icon: "mdi:video-input-hdmi",
+      icon: ICONS[adapter.role],
       ...adapterAvailability(adapter),
       device: adapterDevice(adapter),
       origin: origin(ctx)
@@ -120,7 +131,7 @@ export function ipAddressDiscovery(adapter: Adapter, ctx: DiscoveryContext): Dis
       object_id: `${adapter.id}_ip_address`,
       state_topic: topics.ipState,
       entity_category: "diagnostic",
-      icon: "mdi:ip-network",
+      icon: ICONS.ip,
       ...adapterAvailability(adapter),
       device: adapterDevice(adapter),
       origin: origin(ctx)
@@ -144,8 +155,26 @@ export function nameDiscovery(adapter: Adapter, ctx: DiscoveryContext): Discover
       retain: false,
       qos: 1,
       entity_category: "config",
-      icon: "mdi:rename-box",
+      icon: ICONS.name,
       availability: [controllerAvailability()],
+      device: adapterDevice(adapter),
+      origin: origin(ctx)
+    }
+  };
+}
+
+export function roleDiscovery(adapter: Adapter, ctx: DiscoveryContext): DiscoveryMessage {
+  const topics = deviceTopics(adapter.mac);
+  return {
+    topic: haDiscoveryTopic("sensor", deviceNodeId(adapter.mac), "role"),
+    payload: {
+      name: "Role",
+      unique_id: `${adapter.id}_role`,
+      object_id: `${adapter.id}_role`,
+      state_topic: topics.roleState,
+      entity_category: "diagnostic",
+      icon: ICONS.role,
+      ...adapterAvailability(adapter),
       device: adapterDevice(adapter),
       origin: origin(ctx)
     }
@@ -154,7 +183,7 @@ export function nameDiscovery(adapter: Adapter, ctx: DiscoveryContext): Discover
 
 export function adapterDiscoveryMessages(adapter: Adapter, ctx: DiscoveryContext): DiscoveryMessage[] {
   const channel = adapter.role === "receiver" ? receiverChannelDiscovery(adapter, ctx) : readOnlyChannelDiscovery(adapter, ctx);
-  return [channel, nameDiscovery(adapter, ctx), ipAddressDiscovery(adapter, ctx)];
+  return [channel, nameDiscovery(adapter, ctx), ipAddressDiscovery(adapter, ctx), roleDiscovery(adapter, ctx)];
 }
 
 export function staleAdapterDiscoveryTopics(adapter: Adapter): string[] {
@@ -173,7 +202,7 @@ export function rescanButtonDiscovery(ctx: DiscoveryContext): DiscoveryMessage {
       payload_press: PAYLOAD_PRESS,
       retain: false,
       qos: 1,
-      icon: "mdi:radar",
+      icon: ICONS.rescan,
       availability: [controllerAvailability()],
       device: controllerDevice(ctx),
       origin: origin(ctx)
@@ -190,7 +219,7 @@ export function knownDevicesDiscovery(ctx: DiscoveryContext): DiscoveryMessage {
       object_id: `${CONTROLLER_NODE_ID}_known_devices`,
       state_topic: controllerTopics.knownDevicesState,
       state_class: "measurement",
-      icon: "mdi:hdmi-port",
+      icon: ICONS.controller,
       availability: [controllerAvailability()],
       device: controllerDevice(ctx),
       origin: origin(ctx)
@@ -207,7 +236,7 @@ export function onlineDevicesDiscovery(ctx: DiscoveryContext): DiscoveryMessage 
       object_id: `${CONTROLLER_NODE_ID}_online_devices`,
       state_topic: controllerTopics.onlineDevicesState,
       state_class: "measurement",
-      icon: "mdi:lan-connect",
+      icon: ICONS.controller,
       availability: [controllerAvailability()],
       device: controllerDevice(ctx),
       origin: origin(ctx)

@@ -1,6 +1,6 @@
 {
   "name": "dt241m-controller",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Home Assistant MQTT bridge for PWAY DT241M HDMI-over-IP transmitters and receivers",
   "type": "module",

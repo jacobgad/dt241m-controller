@@ -124,9 +124,10 @@ describe("Controller discovery", () => {
     expect(configs.map(([topic]) => topic).sort()).toEqual([
       "homeassistant/number/dt241m_fc19286cd6d8/channel/config",
       "homeassistant/sensor/dt241m_fc19286cd6d8/ip_address/config",
+      "homeassistant/sensor/dt241m_fc19286cd6d8/role/config",
       "homeassistant/text/dt241m_fc19286cd6d8/name/config"
     ]);
-    expect(uniqueIds.size).toBe(3);
+    expect(uniqueIds.size).toBe(4);
     for (const [, payload] of configs) {
       expect((payload["device"] as { identifiers: string[] }).identifiers).toEqual(["dt241m:fc19286cd6d8"]);
     }

@@ -72,8 +72,9 @@ No other RPC methods are guessed or implemented. Behaviour on other firmware ver
 | `dt241m/device/<mac>/channel/set` | Receiver channel command (receivers only) |
 | `dt241m/device/<mac>/name/state`, `.../name/set` | User-editable name |
 | `dt241m/device/<mac>/ip/state` | Current IP (diagnostic) |
+| `dt241m/device/<mac>/role/state` | `receiver` / `transmitter` / `unknown` (diagnostic) |
 
-`<mac>` is the separator-free lowercase MAC, e.g. `fc19286cd6d8`. The Home Assistant device identifier is `dt241m:<mac>` and entity unique IDs are `dt241m_<mac>_channel`, `dt241m_<mac>_name`, `dt241m_<mac>_ip_address`. IP addresses and names never appear in topics or identifiers.
+`<mac>` is the separator-free lowercase MAC, e.g. `fc19286cd6d8`. The Home Assistant device identifier is `dt241m:<mac>` and entity unique IDs are `dt241m_<mac>_channel`, `dt241m_<mac>_name`, `dt241m_<mac>_ip_address`, `dt241m_<mac>_role`. IP addresses and names never appear in topics or identifiers.
 
 Discovery payloads are published under `homeassistant/<component>/dt241m_<mac>/<object>/config`.
 
@@ -156,7 +157,7 @@ dt241m-controller/
 
 ## Tests
 
-`pnpm test` runs 127 Vitest tests entirely offline against a simulated device network built from the captured fixtures. No test contacts real hardware or any historical device address. The suites cover the protocol contract, fixture parsing, classification, CIDR/config validation, registry behaviour, discovery, polling, DHCP identity safety, command ordering, hardware quirks, MQTT Discovery/behaviour and SQLite persistence/restart.
+`pnpm test` runs 128 Vitest tests entirely offline against a simulated device network built from the captured fixtures. No test contacts real hardware or any historical device address. The suites cover the protocol contract, fixture parsing, classification, CIDR/config validation, registry behaviour, discovery, polling, DHCP identity safety, command ordering, hardware quirks, MQTT Discovery/behaviour and SQLite persistence/restart.
 
 ## Limitations
 

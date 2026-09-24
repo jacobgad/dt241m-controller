@@ -187,7 +187,7 @@ describe("restart behaviour", () => {
     const configsAfter = h.mqtt.discoveryConfigs();
     expect([...configsAfter.keys()].sort()).toEqual([...configsBefore.keys()].sort());
     const deviceConfigs = [...configsAfter.entries()].filter(([topic]) => topic.includes(RX_ID));
-    expect(deviceConfigs.length).toBe(3);
+    expect(deviceConfigs.length).toBe(4);
     for (const [, payload] of deviceConfigs) {
       expect((payload["device"] as { identifiers: string[] }).identifiers).toEqual(["dt241m:fc19286cd6d8"]);
       expect((payload["device"] as { name: string }).name).toBe("Main Projector");

@@ -421,7 +421,7 @@ export class Controller {
     if (result.channelChanged) {
       this.log.info("adapter_channel_observed", { mac: adapter.mac, ip, role: adapter.role, reportedChannel: adapter.channel });
     }
-    if (result.channelChanged || result.ipChanged || result.cameOnline) {
+    if (result.channelChanged || result.ipChanged || result.cameOnline || result.roleChanged) {
       await this.publishAdapterState(adapter);
     }
     if (result.cameOnline || result.displaced) await this.publishCounts();
@@ -457,6 +457,7 @@ export class Controller {
     const topics = deviceTopics(adapter.mac);
     if (adapter.channel !== null) await this.mqtt.publish(topics.channelState, String(adapter.channel), RETAINED);
     if (adapter.ip !== "") await this.mqtt.publish(topics.ipState, adapter.ip, RETAINED);
+    await this.mqtt.publish(topics.roleState, adapter.role, RETAINED);
   }
 
   private async publishCounts(force = false): Promise<void> {
