@@ -56,15 +56,18 @@ func TestReceiverChannelDiscoveryPayload(t *testing.T) {
 	}
 }
 
-func TestTransmitterChannelIsReadOnlySensor(t *testing.T) {
+func TestTransmitterChannelIsAConfigNumber(t *testing.T) {
 	h, _, _ := started(t)
 	configs := h.mqtt.DiscoveryConfigs()
-	cfg := configs["homeassistant/sensor/"+txID+"/channel/config"]
-	if cfg["unique_id"] != txID+"_channel" || cfg["icon"] != "mdi:broadcast" || cfg["command_topic"] != nil {
+	cfg := configs["homeassistant/number/"+txID+"/channel/config"]
+	if cfg["unique_id"] != txID+"_channel" || cfg["icon"] != "mdi:broadcast" || cfg["command_topic"] != "dt241m/device/fc19286cd291/channel/set" || cfg["entity_category"] != "config" || cfg["optimistic"] != false {
 		t.Fatalf("cfg %v", cfg)
 	}
-	if _, exists := configs["homeassistant/number/"+txID+"/channel/config"]; exists {
-		t.Fatal("transmitter must not have a number entity")
+	if _, exists := configs["homeassistant/sensor/"+txID+"/channel/config"]; exists {
+		t.Fatal("legacy sensor config must be cleared")
+	}
+	if _, exists := configs["homeassistant/select/"+txID+"/source/config"]; exists {
+		t.Fatal("transmitters must not have a Source select")
 	}
 }
 
@@ -146,7 +149,8 @@ func TestInvalidCommandsAreIgnored(t *testing.T) {
 	h, _, x := started(t)
 	h.mqtt.Deliver(mqtt.ForDevice(testutil.RxFixtureMAC).ChannelSet, "abc")
 	h.mqtt.Deliver(mqtt.ForDevice(testutil.RxFixtureMAC).ChannelSet, "300")
-	h.mqtt.Deliver(mqtt.ForDevice(testutil.TxFixtureMAC).ChannelSet, "2")
+	h.mqtt.Deliver(mqtt.ForDevice(testutil.RxFixtureMAC).SourceSet, "No Such Transmitter")
+	h.mqtt.Deliver(mqtt.ForDevice(testutil.TxFixtureMAC).SourceSet, "ET01_286CD291")
 	h.mqtt.Deliver(mqtt.ControllerRescanPress, "PRESS")
 	eventually(t, func() bool { return h.ctrl.DiscoveryRunCount() == 2 }, "rescan")
 	if len(h.net.AllWrites()) != 0 || x.ReportedChannel() != 3 {

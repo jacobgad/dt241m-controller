@@ -205,7 +205,7 @@ func TestDHCPMovePersistsOneRecordWithSameNameAndIdentity(t *testing.T) {
 			t.Fatalf("device %v", device)
 		}
 	}
-	if count != 4 || after["homeassistant/number/"+rxID+"/channel/config"]["unique_id"] != rxID+"_channel" {
+	if count != 5 || after["homeassistant/number/"+rxID+"/channel/config"]["unique_id"] != rxID+"_channel" {
 		t.Fatal("identity changed")
 	}
 }
@@ -241,8 +241,8 @@ func TestRenameKeepsIdentity(t *testing.T) {
 	h.net.ResetRequests()
 	h.ctrl.Rename(h.ctx, testutil.RxFixtureMAC, "Auditorium Projector")
 	after := h.mqtt.DiscoveryConfigs()
-	if len(after) != 4 {
-		t.Fatalf("expected 4 republished configs, got %d", len(after))
+	if len(after) != 5 {
+		t.Fatalf("expected 5 republished configs, got %d", len(after))
 	}
 	for topic, cfg := range after {
 		prev := before[topic]

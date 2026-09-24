@@ -120,9 +120,8 @@ func TestFollowsDeviceToNewIPWhenOldIsSilent(t *testing.T) {
 	}
 }
 
-func TestRefusesTransmittersUnknownRolesAndUnknownDevices(t *testing.T) {
+func TestRefusesUnknownRolesAndUnknownDevices(t *testing.T) {
 	h := newHarness(t, harnessOptions{})
-	tx(testutil.TxFixtureMAC, "192.168.1.5", h.net)
 	rx("cc:cc:cc:cc:cc:cc", "192.168.1.6", h.net, func(o *testutil.DeviceOptions) {
 		o.Overrides = map[string]any{"product_name": "Mystery", "model": "unknown"}
 	})
@@ -131,7 +130,7 @@ func TestRefusesTransmittersUnknownRolesAndUnknownDevices(t *testing.T) {
 	if mystery.Role != "unknown" {
 		t.Fatal("expected unknown role")
 	}
-	for macAddr, reason := range map[string]controller.FailureReason{testutil.TxFixtureMAC: controller.ReasonNotAReceiver, "cc:cc:cc:cc:cc:cc": controller.ReasonNotAReceiver, "dd:dd:dd:dd:dd:dd": controller.ReasonUnknownDevice} {
+	for macAddr, reason := range map[string]controller.FailureReason{"cc:cc:cc:cc:cc:cc": controller.ReasonUnknownRole, "dd:dd:dd:dd:dd:dd": controller.ReasonUnknownDevice} {
 		_, err := h.ctrl.RequestChannelChange(h.ctx, macAddr, 2)
 		var rej *controller.Rejected
 		if !errors.As(err, &rej) || rej.Reason != reason {

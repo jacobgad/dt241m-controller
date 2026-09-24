@@ -139,3 +139,62 @@ func TestChannelPayloadParsing(t *testing.T) {
 		t.Fatal("bad topic accepted")
 	}
 }
+
+func txInfo(t *testing.T, mac, name string, channel int) *dt241m.DeviceInfo {
+	return info(t, "tx-info-initial-channel-3", map[string]any{"lan_mac_addr": mac, "dev_name": name, "channel_id": channel})
+}
+
+func TestSourcesTable(t *testing.T) {
+	r := registry.New()
+	r.RecordObservation("10.0.0.1", txInfo(t, "aa:aa:aa:aa:aa:01", "Stage Camera", 1), time.Now())
+	r.RecordObservation("10.0.0.2", txInfo(t, "aa:aa:aa:aa:aa:02", "Lectern PC", 2), time.Now())
+	r.RecordObservation("10.0.0.3", txInfo(t, "aa:aa:aa:aa:aa:03", "Lectern PC", 3), time.Now())
+	r.RecordObservation("10.0.0.9", info(t, "rx-info-initial-channel-2", nil), time.Now())
+	r.RecordObservation("10.0.0.8", info(t, "rx-info-initial-channel-2", map[string]any{"lan_mac_addr": "bb:bb:bb:bb:bb:01", "product_name": nil, "model": nil}), time.Now())
+
+	table := r.Sources()
+	options := table.Options()
+	want := []string{"Lectern PC (ch 2)", "Lectern PC (ch 3)", "Stage Camera"}
+	if len(options) != 3 || options[0] != want[0] || options[1] != want[1] || options[2] != want[2] {
+		t.Fatalf("options %v", options)
+	}
+	if s, ok := table.ByLabel("Lectern PC (ch 3)"); !ok || s.MAC != "aa:aa:aa:aa:aa:03" || s.Channel != 3 {
+		t.Fatalf("lookup %+v %v", s, ok)
+	}
+	if _, ok := table.ByLabel("Lectern PC"); ok {
+		t.Fatal("ambiguous bare label must not resolve")
+	}
+	two := 2
+	if label, collision := table.ForChannel(&two); label != "Lectern PC (ch 2)" || collision {
+		t.Fatalf("channel 2 -> %q %v", label, collision)
+	}
+	seven := 7
+	if label, _ := table.ForChannel(&seven); label != registry.SourceNone {
+		t.Fatalf("unused channel -> %q", label)
+	}
+	if label, _ := table.ForChannel(nil); label != registry.SourceNone {
+		t.Fatal("nil channel must be none")
+	}
+	if len(table.Collisions()) != 0 {
+		t.Fatal("no collisions expected")
+	}
+
+	name := "Stage Camera"
+	r.SetName("aa:aa:aa:aa:aa:02", &name)
+	renamed := r.Sources()
+	if renamed.Equal(table) {
+		t.Fatal("rename must change the table")
+	}
+	if opts := renamed.Options(); opts[0] != "Lectern PC" || opts[1] != "Stage Camera (ch 1)" || opts[2] != "Stage Camera (ch 2)" {
+		t.Fatalf("options after rename %v", opts)
+	}
+
+	r.RecordObservation("10.0.0.1", txInfo(t, "aa:aa:aa:aa:aa:01", "Stage Camera", 2), time.Now())
+	collided := r.Sources()
+	if label, collision := collided.ForChannel(&two); !collision || label == registry.SourceNone {
+		t.Fatalf("collision not detected: %q %v", label, collision)
+	}
+	if macs := collided.Collisions()[2]; len(macs) != 2 {
+		t.Fatalf("collisions %v", collided.Collisions())
+	}
+}

@@ -60,7 +60,8 @@ type FailureReason string
 // Failure reasons.
 const (
 	ReasonDeviceNotLocated FailureReason = "device_not_located"
-	ReasonNotAReceiver     FailureReason = "not_a_receiver"
+	ReasonUnknownRole      FailureReason = "unknown_role"
+	ReasonUnknownSource    FailureReason = "unknown_source"
 	ReasonWriteRejected    FailureReason = "write_rejected"
 	ReasonInvalidChannel   FailureReason = "invalid_channel"
 	ReasonUnknownDevice    FailureReason = "unknown_device"
@@ -125,6 +126,9 @@ type Controller struct {
 	countsMu   sync.Mutex
 	lastCounts *registry.Counts
 
+	sourcesMu   sync.Mutex
+	lastSources registry.SourceTable
+
 	stopping    atomic.Bool
 	started     atomic.Bool
 	pollStarted atomic.Bool
@@ -162,6 +166,11 @@ func New(deps Deps) *Controller {
 		ChannelCommand: func(m string, channel int) {
 			if err := c.EnqueueChannelChange(m, channel); err != nil {
 				c.log.Error("operation_failed", "mac", m, "requestedChannel", channel, "error", err.Error())
+			}
+		},
+		SourceCommand: func(m, label string) {
+			if err := c.EnqueueSourceChange(m, label); err != nil {
+				c.log.Error("operation_failed", "mac", m, "requestedSource", label, "error", err.Error())
 			}
 		},
 		NameCommand:         func(m, raw string) { c.background(func() { c.Rename(c.baseCtx, m, raw) }) },
@@ -280,6 +289,7 @@ func (c *Controller) PublishEverything(ctx context.Context) {
 	for _, m := range mqtt.ControllerMessages(c.origin) {
 		c.publish(ctx, m.Topic, m.JSON())
 	}
+	c.rememberSources(c.Registry.Sources())
 	for _, a := range c.Registry.All() {
 		c.publishAdapterDiscovery(ctx, a)
 		c.publishAdapterAvailability(ctx, a)
@@ -399,11 +409,50 @@ func (c *Controller) forEachAdapter(adapters []registry.Adapter, fn func(registr
 	wg.Wait()
 }
 
-// EnqueueChannelChange validates a request and claims its place in the receiver's
+// EnqueueChannelChange validates a request and claims its place in the device's
 // queue before returning, so calls made in order are executed in order.
 func (c *Controller) EnqueueChannelChange(macAddr string, channel int) error {
 	_, err := c.enqueueChannelChange(macAddr, channel)
 	return err
+}
+
+// EnqueueSourceChange tunes a receiver to a transmitter chosen by its Source label.
+func (c *Controller) EnqueueSourceChange(macAddr, label string) error {
+	_, err := c.enqueueSourceChange(macAddr, label)
+	return err
+}
+
+// RequestSourceChange is EnqueueSourceChange followed by waiting for the outcome.
+func (c *Controller) RequestSourceChange(ctx context.Context, macAddr, label string) (Outcome, error) {
+	result, err := c.enqueueSourceChange(macAddr, label)
+	if err != nil {
+		return Outcome{}, err
+	}
+	select {
+	case outcome := <-result:
+		return outcome, nil
+	case <-ctx.Done():
+		return Outcome{}, ctx.Err()
+	}
+}
+
+func (c *Controller) enqueueSourceChange(macAddr, label string) (<-chan Outcome, error) {
+	adapter, ok := c.Registry.Lookup(mac.Normalize(macAddr))
+	if !ok {
+		c.log.Warn("source_command_unknown_device", "mac", macAddr)
+		return nil, &Rejected{Reason: ReasonUnknownDevice}
+	}
+	if adapter.Role != dt241m.RoleReceiver {
+		c.log.Warn("source_command_refused_role", "mac", adapter.MAC, "role", adapter.Role)
+		return nil, &Rejected{Reason: ReasonUnknownRole}
+	}
+	source, ok := c.Registry.Sources().ByLabel(label)
+	if !ok {
+		c.log.Warn("source_command_invalid", "mac", adapter.MAC, "requestedSource", label)
+		return nil, &Rejected{Reason: ReasonUnknownSource}
+	}
+	c.log.Info("source_change_requested", "mac", adapter.MAC, "requestedSource", label, "transmitterMac", source.MAC, "channel", source.Channel)
+	return c.enqueueChannelChange(adapter.MAC, source.Channel)
 }
 
 // RequestChannelChange is EnqueueChannelChange followed by waiting for the outcome.
@@ -432,11 +481,14 @@ func (c *Controller) enqueueChannelChange(macAddr string, channel int) (<-chan O
 		c.log.Warn("channel_command_unknown_device", "mac", macAddr)
 		return nil, &Rejected{Reason: ReasonUnknownDevice}
 	}
-	if adapter.Role != dt241m.RoleReceiver {
+	if !writableRole(adapter.Role) {
 		c.log.Warn("channel_command_refused_role", "mac", adapter.MAC, "role", adapter.Role, "requestedChannel", channel)
-		return nil, &Rejected{Reason: ReasonNotAReceiver}
+		return nil, &Rejected{Reason: ReasonUnknownRole}
 	}
-	c.log.Info("channel_change_requested", "mac", adapter.MAC, "ip", adapter.IP, "requestedChannel", channel)
+	c.log.Info("channel_change_requested", "mac", adapter.MAC, "ip", adapter.IP, "role", adapter.Role, "requestedChannel", channel)
+	if adapter.Role == dt241m.RoleTransmitter {
+		c.warnTransmitterCollision(adapter.MAC, channel)
+	}
 	result := make(chan Outcome, 1)
 	c.queue.enqueue(adapter.MAC, func() {
 		result <- c.executeChannelChange(c.baseCtx, adapter.MAC, channel)
@@ -451,9 +503,9 @@ func (c *Controller) executeChannelChange(ctx context.Context, macAddr string, r
 		return Outcome{Status: StatusFailed, MAC: macAddr, Requested: requested, Reason: ReasonDeviceNotLocated}
 	}
 	adapter, _ := c.Registry.Lookup(macAddr)
-	if adapter.Role != dt241m.RoleReceiver {
+	if !writableRole(adapter.Role) {
 		c.log.Warn("channel_command_refused_role", "mac", macAddr, "role", adapter.Role, "requestedChannel", requested)
-		return Outcome{Status: StatusFailed, MAC: macAddr, IP: ip, Requested: requested, Reason: ReasonNotAReceiver, Reported: adapter.Channel}
+		return Outcome{Status: StatusFailed, MAC: macAddr, IP: ip, Requested: requested, Reason: ReasonUnknownRole, Reported: adapter.Channel}
 	}
 
 	write := WriteAccepted
@@ -484,6 +536,21 @@ func (c *Controller) executeChannelChange(ctx context.Context, macAddr string, r
 		c.log.Warn("channel_readback_mismatch", "mac", macAddr, "ip", ip, "requestedChannel", requested, "reportedChannel", intOrNil(reported), "write", write)
 	}
 	return outcome
+}
+
+func writableRole(role dt241m.Role) bool {
+	return role == dt241m.RoleReceiver || role == dt241m.RoleTransmitter
+}
+
+// warnTransmitterCollision flags a transmitter being moved onto a channel another
+// transmitter already uses. The write still proceeds: refusing would make it impossible
+// to swap two transmitters, and Home Assistant is the orchestrator.
+func (c *Controller) warnTransmitterCollision(macAddr string, channel int) {
+	for _, other := range c.Registry.All() {
+		if other.MAC != macAddr && other.Role == dt241m.RoleTransmitter && other.Channel != nil && *other.Channel == channel {
+			c.log.Warn("transmitter_channel_collision", "mac", macAddr, "channel", channel, "alsoUsedBy", other.MAC, "alsoUsedByName", other.DisplayName())
+		}
+	}
 }
 
 func (c *Controller) readbackChannel(ctx context.Context, macAddr, ip string, requested int) *int {
@@ -599,15 +666,15 @@ func (c *Controller) applyObservation(ctx context.Context, ip string, info *dt24
 		c.publishAdapterName(ctx, a)
 		c.publishAdapterState(ctx, a)
 		c.publishCounts(ctx, false)
+		if a.Role == dt241m.RoleTransmitter {
+			c.refreshSources(ctx)
+		}
 		return
 	}
 	if obs.IPChanged {
 		c.log.Info("adapter_ip_changed", "mac", a.MAC, "previousIp", obs.PreviousIP, "ip", ip, "role", a.Role)
 	}
 	if obs.MetadataChanged {
-		if obs.RoleChanged {
-			c.publish(ctx, mqtt.StaleChannelTopic(a), "")
-		}
 		c.publishAdapterDiscovery(ctx, a)
 		c.publishAdapterName(ctx, a)
 	}
@@ -627,6 +694,44 @@ func (c *Controller) applyObservation(ctx context.Context, ip string, info *dt24
 	if obs.IPChanged || obs.ChannelChanged || obs.MetadataChanged || obs.CameOnline {
 		c.persist(ctx, a)
 	}
+	if a.Role == dt241m.RoleTransmitter || obs.RoleChanged {
+		c.refreshSources(ctx)
+	}
+}
+
+// refreshSources republishes every receiver's Source select and state when the
+// transmitter catalogue (names or channels) has changed since it was last published.
+func (c *Controller) refreshSources(ctx context.Context) {
+	table := c.Registry.Sources()
+	c.sourcesMu.Lock()
+	changed := !table.Equal(c.lastSources)
+	c.lastSources = table
+	c.sourcesMu.Unlock()
+	if !changed {
+		return
+	}
+	for ch, macs := range table.Collisions() {
+		c.log.Warn("transmitter_channel_collision", "channel", ch, "transmitters", strings.Join(macs, ","))
+	}
+	for _, rx := range c.Registry.All() {
+		if rx.Role != dt241m.RoleReceiver {
+			continue
+		}
+		m := mqtt.ReceiverSource(rx, table.Options(), c.origin)
+		c.publish(ctx, m.Topic, m.JSON())
+		c.publishSourceState(ctx, rx, table)
+	}
+}
+
+func (c *Controller) rememberSources(table registry.SourceTable) {
+	c.sourcesMu.Lock()
+	defer c.sourcesMu.Unlock()
+	c.lastSources = table
+}
+
+func (c *Controller) publishSourceState(ctx context.Context, rx registry.Adapter, table registry.SourceTable) {
+	label, _ := table.ForChannel(rx.Channel)
+	c.publish(ctx, mqtt.ForDevice(rx.MAC).SourceState, label)
 }
 
 // Rename stores a user-chosen name for an adapter and republishes its discovery. The
@@ -651,6 +756,9 @@ func (c *Controller) Rename(ctx context.Context, macAddr, raw string) RenameOutc
 	c.log.Info("adapter_renamed", "mac", adapter.MAC, "previousName", strOrNil(previous), "name", strOrNil(name), "reportedName", strOrNil(adapter.ReportedName))
 	c.publishAdapterName(ctx, updated)
 	c.publishAdapterDiscovery(ctx, updated)
+	if updated.Role == dt241m.RoleTransmitter {
+		c.refreshSources(ctx)
+	}
 	return RenameOutcome{Renamed: true, MAC: adapter.MAC, Name: name}
 }
 
@@ -669,7 +777,14 @@ func (c *Controller) publish(ctx context.Context, topic, payload string) {
 }
 
 func (c *Controller) publishAdapterDiscovery(ctx context.Context, a registry.Adapter) {
-	for _, m := range mqtt.AdapterMessages(a, c.origin) {
+	for _, topic := range mqtt.StaleTopics(a) {
+		c.publish(ctx, topic, "")
+	}
+	var options []string
+	if a.Role == dt241m.RoleReceiver {
+		options = c.Registry.Sources().Options()
+	}
+	for _, m := range mqtt.AdapterMessages(a, options, c.origin) {
 		c.publish(ctx, m.Topic, m.JSON())
 	}
 }
@@ -695,6 +810,9 @@ func (c *Controller) publishAdapterState(ctx context.Context, a registry.Adapter
 		c.publish(ctx, t.IPState, a.IP)
 	}
 	c.publish(ctx, t.RoleState, string(a.Role))
+	if a.Role == dt241m.RoleReceiver {
+		c.publishSourceState(ctx, a, c.Registry.Sources())
+	}
 }
 
 func (c *Controller) publishCounts(ctx context.Context, force bool) {

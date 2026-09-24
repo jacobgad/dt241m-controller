@@ -26,6 +26,7 @@ const (
 
 	DeviceChannelSetWildcard = Prefix + "/device/+/channel/set"
 	DeviceNameSetWildcard    = Prefix + "/device/+/name/set"
+	DeviceSourceSetWildcard  = Prefix + "/device/+/source/set"
 )
 
 // DeviceTopics are the per-adapter topics; the MAC is the only identity in the path.
@@ -37,6 +38,8 @@ type DeviceTopics struct {
 	NameSet      string
 	IPState      string
 	RoleState    string
+	SourceState  string
+	SourceSet    string
 }
 
 // ForDevice derives the topic set for a normalised MAC.
@@ -50,6 +53,8 @@ func ForDevice(macAddr string) DeviceTopics {
 		NameSet:      base + "/name/set",
 		IPState:      base + "/ip/state",
 		RoleState:    base + "/role/state",
+		SourceState:  base + "/source/state",
+		SourceSet:    base + "/source/set",
 	}
 }
 
@@ -68,9 +73,9 @@ func HADiscoveryTopic(component, nodeID, objectID string) string {
 	return HADiscoveryPrefix + "/" + component + "/" + nodeID + "/" + objectID + "/config"
 }
 
-var deviceCommandPattern = regexp.MustCompile(`^` + Prefix + `/device/([0-9a-f]{12})/(channel|name)/set$`)
+var deviceCommandPattern = regexp.MustCompile(`^` + Prefix + `/device/([0-9a-f]{12})/(channel|name|source)/set$`)
 
-// DeviceCommand is a parsed …/<mac>/(channel|name)/set topic.
+// DeviceCommand is a parsed …/<mac>/(channel|name|source)/set topic.
 type DeviceCommand struct {
 	MAC     string
 	Command string

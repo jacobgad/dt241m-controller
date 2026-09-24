@@ -56,19 +56,32 @@ Each adapter appears in Home Assistant as a device under a **DT241M Controller**
 
 | Role | Icon | Entities |
 | --- | --- | --- |
-| Receiver (`ProAVRx`) | monitor | **Channel** (number, writable), **Name** (text), **IP address** and **Role** (diagnostic) |
-| Transmitter (`ProAVTx`) | broadcast | **Channel** (sensor, read-only), **Name** (text), **IP address** and **Role** (diagnostic) |
-| Unknown | question mark | Same as transmitter |
+| Receiver (`ProAVRx`) | monitor | **Source** (select), **Channel** (number), **Name** (text), **IP address** and **Role** (diagnostic) |
+| Transmitter (`ProAVTx`) | broadcast | **Channel** (number, configuration), **Name** (text), **IP address** and **Role** (diagnostic) |
+| Unknown | question mark | **Channel** (sensor, read-only), **Name**, **IP address**, **Role** |
 
 The **Role** sensor reports `receiver`, `transmitter` or `unknown` and can be used in templates and dashboard filters (for example an `auto-entities` card listing every receiver).
 
 Role classification uses the device-reported `product_name` and `model`. Anything that cannot be confidently classified is treated as `unknown` and never receives channel writes.
 
-Transmitter channels are read-only in this version. Changing a transmitter's channel affects every receiver watching it and is considered an administrative action outside the scope of this add-on.
-
 ## Receiver routing
 
-A receiver shows the transmitter channel it is tuned to. Setting the **Channel** number entity sends `set_channel_id` to that receiver. The workflow is:
+A receiver shows the transmitter channel it is tuned to. There are two ways to change it:
+
+- **Source** — a select listing every known transmitter by name. Pick one and the receiver is tuned to that transmitter's current channel. This is the entity most people should use in dashboards and scenes.
+- **Channel** — the raw channel number, for when you know the number or want to tune to a channel no transmitter is on yet.
+
+Both drive the same command path and always agree, because both are derived from the channel the receiver reports.
+
+### Source names
+
+Options are the transmitters' names — the **Name** you set, or the hardware name if you have not set one. Rename a transmitter and every receiver's Source list updates. If two transmitters share a name the options are shown as `Name (ch 1)` and `Name (ch 2)`. Transmitters that are currently offline stay in the list, since a receiver may still be tuned to them.
+
+If a receiver is on a channel that no transmitter is broadcasting on, the Source select has *no selection* — Home Assistant displays it as **Unknown** — and the Channel entity still shows the number. There is deliberately no selectable "none" option; to park a receiver, set its Channel to an unused number.
+
+### What happens on a change
+
+Setting either entity sends `set_channel_id` to that receiver. The workflow is:
 
 1. Validate the channel (integer 0–255).
 2. Query the receiver's last-known IP and confirm it still reports the expected MAC.
@@ -78,6 +91,12 @@ A receiver shows the transmitter channel it is tuned to. Setting the **Channel**
 The entity is not optimistic: it only changes after the device confirms the new value. If the device acknowledges the write but reports a different channel, the add-on logs `channel_readback_mismatch`, publishes the reported value and does not retry. If the HTTP request times out, the add-on reads the device state instead of resending, so a delayed write can never be applied twice.
 
 Commands for the same receiver are executed in order, one at a time. Commands for different receivers run concurrently.
+
+## Transmitter channels
+
+A transmitter's **Channel** is a configuration entity (it appears under the device's *Configuration* section rather than its controls). Changing it re-routes **every receiver currently watching that transmitter**: receivers keep their channel number, so they lose the picture until they are retuned or the transmitter is moved back. Treat it as infrastructure setup, not day-to-day operation.
+
+The write uses the same verify → write → read back path as receivers. If the new channel is already used by another transmitter the add-on logs `transmitter_channel_collision` and proceeds anyway (refusing would make it impossible to swap two transmitters); receivers on that channel will show whichever transmitter sorts first by name until the collision is resolved.
 
 ## Names
 
@@ -92,14 +111,16 @@ Renaming never writes to the DT241M hardware. You can also rename the device or 
 
 ## Scenes
 
-Scenes live entirely in Home Assistant. Create a scene that sets the **Channel** entity of each receiver, for example:
+Scenes live entirely in Home Assistant. Create a scene that sets the **Source** (or **Channel**) entity of each receiver, for example:
 
 ```text
 Scene: Presentation
-  Projector Receiver  Channel → 2
-  Lobby Receiver      Channel → 2
-  Stage Monitor       Channel → 4
+  Projector Receiver  Source → Lectern PC
+  Lobby Receiver      Source → Lectern PC
+  Stage Monitor       Source → Stage Camera
 ```
+
+Using Source keeps scenes readable and survives a transmitter being moved to a different channel; using Channel pins the number regardless of which transmitter is on it.
 
 Activating the scene publishes one MQTT command per receiver. The add-on processes each independently and reports the per-receiver result; there is no atomic multi-device transaction on this hardware.
 
@@ -163,5 +184,8 @@ See *Front-panel quirk* above. Check the **Channel** entity and the actual video
 **A write was refused with `identity_mismatch`**
 Another device now answers at the target's last IP. The add-on rediscovers the intended device before writing; if it cannot be found the operation fails with `device_not_located` and no command is sent anywhere.
 
-**A transmitter did not change**
-Transmitter channels are read-only in this version by design.
+**Source shows Unknown**
+No transmitter is broadcasting on the receiver's current channel. Check the Channel entity and the transmitters' channels; the add-on cannot select a source that does not exist.
+
+**Two receivers show the same transmitter for different reasons / collision warnings in the log**
+Two transmitters are on the same channel. Move one of them via its Channel entity.

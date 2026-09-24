@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.1.0
+
+- New **Source** select on every receiver: choose a transmitter by name instead of remembering its channel. Options are the transmitters' names (user name if set, otherwise the hardware name); duplicates are shown as `Name (ch N)`. When no transmitter uses the receiver's channel the select has no selection (Home Assistant shows *Unknown*); `none` is never offered as an option.
+- Transmitter **Channel** is now writable (a configuration-category number entity). Changing it re-routes every receiver watching that transmitter; moving onto a channel another transmitter already uses is logged as `transmitter_channel_collision` but allowed so two transmitters can be swapped.
+- Receiver Source options and states refresh automatically when transmitters are discovered, renamed or retuned.
+
 ## 2.0.0
 
 Rewrite in Go. Behaviour, MQTT topics, Home Assistant entities, unique IDs and the SQLite schema are unchanged, so existing installations upgrade in place and keep their devices, names and inventory.

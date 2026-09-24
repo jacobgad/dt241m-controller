@@ -69,12 +69,13 @@ No other RPC methods are guessed or implemented. Behaviour on other firmware ver
 | `dt241m/controller/known_devices/state`, `.../online_devices/state` | Inventory counters |
 | `dt241m/device/<mac>/availability` | Per-adapter availability |
 | `dt241m/device/<mac>/channel/state` | Reported channel (retained) |
-| `dt241m/device/<mac>/channel/set` | Receiver channel command (receivers only) |
+| `dt241m/device/<mac>/channel/set` | Channel command (receivers and transmitters) |
+| `dt241m/device/<mac>/source/state`, `.../source/set` | Receiver Source select: transmitter name, or `none` |
 | `dt241m/device/<mac>/name/state`, `.../name/set` | User-editable name |
 | `dt241m/device/<mac>/ip/state` | Current IP (diagnostic) |
 | `dt241m/device/<mac>/role/state` | `receiver` / `transmitter` / `unknown` (diagnostic) |
 
-`<mac>` is the separator-free lowercase MAC, e.g. `fc19286cd6d8`. The Home Assistant device identifier is `dt241m:<mac>` and entity unique IDs are `dt241m_<mac>_channel`, `dt241m_<mac>_name`, `dt241m_<mac>_ip_address`, `dt241m_<mac>_role`. IP addresses and names never appear in topics or identifiers.
+`<mac>` is the separator-free lowercase MAC, e.g. `fc19286cd6d8`. The Home Assistant device identifier is `dt241m:<mac>` and entity unique IDs are `dt241m_<mac>_channel`, `dt241m_<mac>_source` (receivers), `dt241m_<mac>_name`, `dt241m_<mac>_ip_address`, `dt241m_<mac>_role`. IP addresses and names never appear in topics or identifiers.
 
 Discovery payloads are published under `homeassistant/<component>/dt241m_<mac>/<object>/config`.
 
@@ -158,12 +159,11 @@ dt241m-controller/
 
 ## Tests
 
-`go test -race ./...` runs 85 tests entirely offline against a simulated device network (an `http.RoundTripper` built from the captured fixtures). No test contacts real hardware or any historical device address. The suites cover the protocol contract, fixture parsing, classification, CIDR/config validation, the Supervisor MQTT lookup, registry behaviour, discovery, polling, DHCP identity safety, command ordering, hardware quirks, MQTT Discovery/behaviour and SQLite persistence/restart.
+`go test -race ./...` runs 97 tests entirely offline against a simulated device network (an `http.RoundTripper` built from the captured fixtures). No test contacts real hardware or any historical device address. The suites cover the protocol contract, fixture parsing, classification, CIDR/config validation, the Supervisor MQTT lookup, registry behaviour, discovery, polling, DHCP identity safety, command ordering, hardware quirks, MQTT Discovery/behaviour and SQLite persistence/restart.
 
 ## Limitations
 
-- Transmitter channels are read-only; no transmitter configuration
-- No source-name selector, presets, groups, scenes or operation history in the add-on
+- No presets, groups, scenes or operation history in the add-on (Home Assistant owns those)
 - No EDID, firmware, network, emergency-mode or naming (`set_assigned_name`) hardware features
 - IPv4 only; scan ranges must be private and `/16` or smaller
 - No periodic full subnet scan; new devices require startup, a disappearance or the Rescan button

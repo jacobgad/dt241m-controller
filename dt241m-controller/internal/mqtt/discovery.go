@@ -40,6 +40,7 @@ var Icons = map[string]string{
 	"name":        "mdi:rename-box",
 	"ip":          "mdi:ip-network",
 	"role":        "mdi:swap-horizontal",
+	"source":      "mdi:video-input-hdmi",
 }
 
 func origin(o Origin) map[string]any {
@@ -119,7 +120,60 @@ func ReceiverChannel(a registry.Adapter, o Origin) Message {
 	}
 }
 
-// ReadOnlyChannel is the read-only Channel sensor for transmitters and unknown devices.
+// TransmitterChannel is the writable Channel number for a transmitter. It is a
+// configuration entity: changing it re-routes every receiver watching that transmitter.
+func TransmitterChannel(a registry.Adapter, o Origin) Message {
+	t := ForDevice(a.MAC)
+	return Message{
+		Topic: HADiscoveryTopic("number", DeviceNodeID(a.MAC), "channel"),
+		Payload: withAdapterAvailability(a, map[string]any{
+			"name":            "Channel",
+			"unique_id":       a.ID + "_channel",
+			"object_id":       a.ID + "_channel",
+			"state_topic":     t.ChannelState,
+			"command_topic":   t.ChannelSet,
+			"min":             dt241m.MinChannel,
+			"max":             dt241m.MaxChannel,
+			"step":            1,
+			"mode":            "box",
+			"optimistic":      false,
+			"retain":          false,
+			"qos":             1,
+			"entity_category": "config",
+			"icon":            Icons["transmitter"],
+			"device":          adapterDevice(a),
+			"origin":          origin(o),
+		}),
+	}
+}
+
+// ReceiverSource is the Source select on a receiver: pick a transmitter by name instead
+// of remembering its channel. The state is "none" when no transmitter uses the channel.
+func ReceiverSource(a registry.Adapter, options []string, o Origin) Message {
+	t := ForDevice(a.MAC)
+	if options == nil {
+		options = []string{}
+	}
+	return Message{
+		Topic: HADiscoveryTopic("select", DeviceNodeID(a.MAC), "source"),
+		Payload: withAdapterAvailability(a, map[string]any{
+			"name":          "Source",
+			"unique_id":     a.ID + "_source",
+			"object_id":     a.ID + "_source",
+			"state_topic":   t.SourceState,
+			"command_topic": t.SourceSet,
+			"options":       options,
+			"optimistic":    false,
+			"retain":        false,
+			"qos":           1,
+			"icon":          Icons["source"],
+			"device":        adapterDevice(a),
+			"origin":        origin(o),
+		}),
+	}
+}
+
+// ReadOnlyChannel is the Channel sensor for devices whose role could not be determined.
 func ReadOnlyChannel(a registry.Adapter, o Origin) Message {
 	t := ForDevice(a.MAC)
 	return Message{
@@ -195,23 +249,33 @@ func Role(a registry.Adapter, o Origin) Message {
 	}
 }
 
-// AdapterMessages lists every entity published for an adapter.
-func AdapterMessages(a registry.Adapter, o Origin) []Message {
-	channel := ReadOnlyChannel(a, o)
-	if a.Role == dt241m.RoleReceiver {
-		channel = ReceiverChannel(a, o)
+// AdapterMessages lists every entity published for an adapter; sourceOptions is only used for receivers.
+func AdapterMessages(a registry.Adapter, sourceOptions []string, o Origin) []Message {
+	messages := []Message{Name(a, o), IPAddress(a, o), Role(a, o)}
+	switch a.Role {
+	case dt241m.RoleReceiver:
+		messages = append(messages, ReceiverChannel(a, o), ReceiverSource(a, sourceOptions, o))
+	case dt241m.RoleTransmitter:
+		messages = append(messages, TransmitterChannel(a, o))
+	default:
+		messages = append(messages, ReadOnlyChannel(a, o))
 	}
-	return []Message{channel, Name(a, o), IPAddress(a, o), Role(a, o)}
+	return messages
 }
 
-// StaleChannelTopic is the config topic of the other channel component. It is cleared
-// when a role flips so Home Assistant never sees one unique_id under two platforms.
-func StaleChannelTopic(a registry.Adapter) string {
-	other := "number"
-	if a.Role == dt241m.RoleReceiver {
-		other = "sensor"
+// StaleTopics are config topics that must be cleared for an adapter in its current role,
+// so that a unique_id never lingers under a platform it no longer uses (role flips, and
+// the 2.0 → 2.1 move of the transmitter channel from sensor to number).
+func StaleTopics(a registry.Adapter) []string {
+	node := DeviceNodeID(a.MAC)
+	switch a.Role {
+	case dt241m.RoleReceiver:
+		return []string{HADiscoveryTopic("sensor", node, "channel")}
+	case dt241m.RoleTransmitter:
+		return []string{HADiscoveryTopic("sensor", node, "channel"), HADiscoveryTopic("select", node, "source")}
+	default:
+		return []string{HADiscoveryTopic("number", node, "channel"), HADiscoveryTopic("select", node, "source")}
 	}
-	return HADiscoveryTopic(other, DeviceNodeID(a.MAC), "channel")
 }
 
 // RescanButton is the controller's Rescan network button.

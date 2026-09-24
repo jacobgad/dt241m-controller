@@ -88,8 +88,8 @@ func TestDiscoveryRegistersClassifiesAndPublishes(t *testing.T) {
 	if _, ok := configs["homeassistant/number/dt241m_fc19286cd6d8/channel/config"]; !ok {
 		t.Fatal("receiver number config missing")
 	}
-	if _, ok := configs["homeassistant/sensor/dt241m_fc19286cd291/channel/config"]; !ok {
-		t.Fatal("transmitter sensor config missing")
+	if _, ok := configs["homeassistant/number/dt241m_fc19286cd291/channel/config"]; !ok {
+		t.Fatal("transmitter number config missing")
 	}
 	if h.mqtt.LastPayload(mqtt.ForDevice(testutil.RxFixtureMAC).ChannelState) != "2" || h.mqtt.LastPayload(mqtt.ForDevice(testutil.TxFixtureMAC).ChannelState) != "3" {
 		t.Fatal("channel states wrong")
@@ -159,6 +159,7 @@ func TestRepeatedDiscoveryDoesNotDuplicateHADevice(t *testing.T) {
 	}
 	expected := []string{
 		"homeassistant/number/dt241m_fc19286cd6d8/channel/config",
+		"homeassistant/select/dt241m_fc19286cd6d8/source/config",
 		"homeassistant/sensor/dt241m_fc19286cd6d8/ip_address/config",
 		"homeassistant/sensor/dt241m_fc19286cd6d8/role/config",
 		"homeassistant/text/dt241m_fc19286cd6d8/name/config",

@@ -14,13 +14,14 @@ import (
 // work in the background, which is what preserves command order.
 type Actions struct {
 	ChannelCommand      func(mac string, channel int)
+	SourceCommand       func(mac string, label string)
 	NameCommand         func(mac string, raw string)
 	RescanRequested     func()
 	HomeAssistantOnline func()
 }
 
 // Subscriptions are the topics the controller listens on.
-var Subscriptions = []string{DeviceChannelSetWildcard, DeviceNameSetWildcard, ControllerRescanPress, HAStatusTopic}
+var Subscriptions = []string{DeviceChannelSetWildcard, DeviceSourceSetWildcard, DeviceNameSetWildcard, ControllerRescanPress, HAStatusTopic}
 
 var channelPayload = regexp.MustCompile(`^[+-]?\d+(\.0+)?$`)
 
@@ -53,6 +54,8 @@ func NewRouter(actions Actions, log *slog.Logger) MessageHandler {
 					return
 				}
 				actions.ChannelCommand(cmd.MAC, channel)
+			case "source":
+				actions.SourceCommand(cmd.MAC, strings.TrimSpace(string(payload)))
 			case "name":
 				actions.NameCommand(cmd.MAC, string(payload))
 			}
