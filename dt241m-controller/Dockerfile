@@ -5,19 +5,26 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY tsconfig.json tsconfig.build.json ./
 COPY src ./src
-RUN pnpm build \
- && pnpm install --prod --frozen-lockfile --ignore-scripts
+RUN pnpm build
+
+FROM node:24-alpine AS prod-deps
+WORKDIR /app
+RUN npm install -g pnpm@11
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm install --prod --frozen-lockfile \
+ && rm -rf node_modules/.pnpm/better-sqlite3@*/node_modules/better-sqlite3/deps \
+           node_modules/.pnpm/better-sqlite3@*/node_modules/better-sqlite3/src
 
 FROM ghcr.io/home-assistant/base:3.24-2026.08.0
 
-ARG BUILD_VERSION=1.0.0
+ARG BUILD_VERSION=1.0.1
 ARG BUILD_ARCH
 
 RUN apk add --no-cache nodejs
 
 WORKDIR /app
+COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
-COPY --from=build /app/node_modules ./node_modules
 COPY package.json ./
 COPY drizzle ./drizzle
 COPY run.sh /run.sh
