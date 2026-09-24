@@ -8,6 +8,7 @@ Home Assistant add-on that bridges PWAY **DT241M** HDMI-over-IP transmitters and
 - Exposes each transmitter's channel as a read-only `sensor`
 - Persists the device inventory and user-set names in SQLite under `/data`
 - Publishes everything through Home Assistant MQTT Discovery; no custom integration or UI
+- Ships as a single static Go binary in a ~20 MB image
 
 See [DOCS.md](DOCS.md) for installation, configuration and troubleshooting, and the repository [README](../README.md) for architecture, development and limitations.
 

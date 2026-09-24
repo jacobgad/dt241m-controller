@@ -28,7 +28,7 @@ DT241M Controller add-on
        DT241M transmitters / receivers
 ```
 
-There is no web UI, no REST API and no custom Home Assistant integration.
+There is no web UI, no REST API and no custom Home Assistant integration. The add-on is a single static Go binary.
 
 ## Supported hardware
 
@@ -41,7 +41,7 @@ It does **not** claim support for every PWAY HDMI-over-IP product. Devices whose
 
 ## Hardware validation
 
-Validated on 24 September 2026 against a live installation of 16 units (3 transmitters, 13 receivers), all on firmware `1.13471.133`, reached over a VPN:
+Validated on 24 September 2026 (both the 1.x Node.js build and the 2.0 Go build) against a live installation of 16 units (3 transmitters, 13 receivers), all on firmware `1.13471.133`, reached over a VPN:
 
 - A `/24` scan discovered and correctly classified all 16 devices in ~61 s (2 s probe timeout, 8 concurrent)
 - Polling every 15 s ran without availability flapping and without sending any writes
@@ -49,7 +49,7 @@ Validated on 24 September 2026 against a live installation of 16 units (3 transm
 - The receiver `set_channel_id` acknowledgement was captured and matches the transmitter shape: `{"jsonrpc":"2.0","id":1,"result":{"result":true}}`
 - All responses arrive as `HTTP 200` with `Content-type: text/html` (lighttpd 1.4.35) despite JSON bodies
 
-Not yet verified: behaviour inside a live Supervisor install (bashio MQTT lookup, s6 `init: false`), DHCP address changes on real hardware, channel 0 semantics, and whether receiver front-panel digits update after an HTTP change.
+Not yet verified: the Supervisor services-API MQTT lookup inside a live Home Assistant install, DHCP address changes on real hardware, channel 0 semantics, and whether receiver front-panel digits update after an HTTP change.
 
 ## Protocol disclaimer
 
@@ -83,7 +83,7 @@ Discovery payloads are published under `homeassistant/<component>/dt241m_<mac>/<
 - `aarch64`
 - `amd64`
 
-The image is built from `ghcr.io/home-assistant/base` (Alpine) with Node.js from the Alpine repositories. SQLite is provided by `better-sqlite3`, pinned to a release that ships prebuilt `linuxmusl-x64` / `linuxmusl-arm64` binaries for the Node 24 ABI, so no compiler toolchain is needed in the image. The Dockerfile verifies at build time that the native module loads in the runtime image.
+The image is a statically linked Go binary (`CGO_ENABLED=0`) on plain `alpine:3.24`, about 20 MB in total. SQLite is provided by the pure-Go `modernc.org/sqlite`, so there are no native modules and no per-architecture prebuilt binaries to manage; cross-compiling for either architecture is a single `GOARCH` flag.
 
 ## Installation
 
@@ -104,14 +104,13 @@ Full user documentation is in [`dt241m-controller/DOCS.md`](dt241m-controller/DO
 
 ## Development
 
-Requirements: Node.js ≥ 22, pnpm 11, Docker (for image builds).
+Requirements: Go ≥ 1.25, Docker (for image builds).
 
 ```bash
 cd dt241m-controller
-pnpm install
-pnpm typecheck
-pnpm test
-pnpm build
+go vet ./...
+go test -race ./...
+CGO_ENABLED=0 go build -o dt241m-controller ./cmd/dt241m-controller
 ```
 
 Run locally against any MQTT broker:
@@ -121,43 +120,41 @@ echo '{"scan_ranges":["192.168.1.0/24"]}' > /tmp/options.json
 MQTT_HOST=127.0.0.1 MQTT_PORT=1883 \
 DT241M_OPTIONS_PATH=/tmp/options.json \
 DT241M_DATABASE_PATH=/tmp/dt241m.sqlite \
-pnpm dev
+./dt241m-controller
 ```
+
+Under the Supervisor, `MQTT_HOST` is unset and the binary fetches the broker details from `http://supervisor/services/mqtt` using `SUPERVISOR_TOKEN`; setting `MQTT_HOST` overrides that for local development.
 
 Build the add-on image:
 
 ```bash
 cd dt241m-controller
-docker buildx build --platform linux/amd64 --build-arg BUILD_VERSION=1.0.0 -t dt241m-controller:amd64 --load .
-docker buildx build --platform linux/arm64 --build-arg BUILD_VERSION=1.0.0 -t dt241m-controller:aarch64 --load .
+docker buildx build --platform linux/amd64 --build-arg BUILD_VERSION=2.0.0 -t dt241m-controller:amd64 --load .
+docker buildx build --platform linux/arm64 --build-arg BUILD_VERSION=2.0.0 -t dt241m-controller:aarch64 --load .
 ```
 
-Database schema changes: edit `src/db/schema.ts`, run `pnpm drizzle-kit generate`, and commit the new file under `drizzle/`. Migrations run automatically at startup.
-
-`better-sqlite3` is pinned to an exact version on purpose: its prebuilt binaries are tied to the Node ABI, and newer releases have not always published them. When bumping it, confirm a `linuxmusl` prebuild exists for the Node major shipped by the Alpine base image (the Docker build fails loudly if the module cannot load).
+Database schema changes: append a statement to the `migrations` slice in `internal/store/store.go` and bump `schemaVersion`. Migrations are tracked with `PRAGMA user_version` and run automatically at startup; the schema is unchanged from 1.x so existing databases are reused as-is.
 
 ### Layout
 
 ```text
 dt241m-controller/
-├── config.yaml, Dockerfile, run.sh          Home Assistant add-on packaging
-├── drizzle/                                 SQL migrations (generated)
+├── config.yaml, Dockerfile                  Home Assistant add-on packaging
 ├── fixtures/                                Captured DT241M responses (from the handoff)
-└── src/
-    ├── index.ts                             Bootstrap, signals
-    ├── config.ts                            Add-on options + Supervisor MQTT env (Zod)
-    ├── controller.ts                        Orchestration: discovery, polling, writes, MQTT publishing
-    ├── registry.ts                          In-memory adapter registry keyed by MAC
-    ├── discovery.ts, poller.ts, cidr.ts, concurrency.ts
-    ├── db/                                  Drizzle schema, better-sqlite3 database, adapter store
-    ├── dt241m/                              Protocol client, Zod schemas, TX/RX classification
-    ├── mqtt/                                Connection, topics, HA Discovery payloads, inbound routing
-    └── tests/                               Vitest suites + offline simulator
+├── cmd/dt241m-controller/main.go            Bootstrap, signals
+└── internal/
+    ├── dt241m/                              Protocol client, DeviceInfo parsing, TX/RX classification
+    ├── controller/                          Orchestration: discovery, polling, per-MAC write queue, MQTT publishing
+    ├── registry/                            In-memory adapter registry keyed by MAC
+    ├── store/                               SQLite (modernc.org/sqlite) inventory with embedded migrations
+    ├── mqtt/                                Connection interface, paho.golang impl, topics, HA Discovery payloads, router
+    ├── config/, cidr/, mac/, discovery/     Options + Supervisor MQTT lookup, range expansion, identity, probing
+    └── testutil/                            Offline device simulator (http.RoundTripper), fake MQTT, fixtures
 ```
 
 ## Tests
 
-`pnpm test` runs 128 Vitest tests entirely offline against a simulated device network built from the captured fixtures. No test contacts real hardware or any historical device address. The suites cover the protocol contract, fixture parsing, classification, CIDR/config validation, registry behaviour, discovery, polling, DHCP identity safety, command ordering, hardware quirks, MQTT Discovery/behaviour and SQLite persistence/restart.
+`go test -race ./...` runs 79 tests entirely offline against a simulated device network (an `http.RoundTripper` built from the captured fixtures). No test contacts real hardware or any historical device address. The suites cover the protocol contract, fixture parsing, classification, CIDR/config validation, the Supervisor MQTT lookup, registry behaviour, discovery, polling, DHCP identity safety, command ordering, hardware quirks, MQTT Discovery/behaviour and SQLite persistence/restart.
 
 ## Limitations
 
@@ -169,4 +166,4 @@ dt241m-controller/
 - API readback confirms the device's reported channel, not that video is visible on a display
 - The receiver's physical channel digits may not update after an HTTP channel change (observed hardware quirk)
 - Only firmware `1.13471.133` has been observed; other versions need regression testing
-- Validated on real hardware from a development machine over VPN, not yet from inside a Home Assistant Supervisor install
+- Validated on real hardware from a development machine over VPN; the Supervisor services-API lookup has not yet been exercised inside a live Home Assistant install

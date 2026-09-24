@@ -1,35 +1,19 @@
-FROM node:24-alpine AS build
-WORKDIR /app
-RUN npm install -g pnpm@11
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN pnpm install --frozen-lockfile
-COPY tsconfig.json tsconfig.build.json ./
-COPY src ./src
-RUN pnpm build
+FROM golang:1.27-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd ./cmd
+COPY internal ./internal
+ARG BUILD_VERSION=dev
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${BUILD_VERSION}" -o /out/dt241m-controller ./cmd/dt241m-controller
 
-FROM node:24-alpine AS prod-deps
-WORKDIR /app
-RUN npm install -g pnpm@11
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN pnpm install --prod --frozen-lockfile \
- && rm -rf node_modules/.pnpm/better-sqlite3@*/node_modules/better-sqlite3/deps \
-           node_modules/.pnpm/better-sqlite3@*/node_modules/better-sqlite3/src
+FROM alpine:3.24
 
-FROM ghcr.io/home-assistant/base:3.24-2026.08.0
-
-ARG BUILD_VERSION=1.0.1
+ARG BUILD_VERSION=dev
 ARG BUILD_ARCH
 
-RUN apk add --no-cache nodejs
-
-WORKDIR /app
-COPY --from=prod-deps /app/node_modules ./node_modules
-COPY --from=build /app/dist ./dist
-COPY package.json ./
-COPY drizzle ./drizzle
-COPY run.sh /run.sh
-RUN chmod a+x /run.sh \
- && node -e "const v=process.versions; const D=require('better-sqlite3'); console.log('node', v.node, 'abi', v.modules, 'sqlite', new D(':memory:').prepare('select sqlite_version() v').get().v)"
+RUN apk add --no-cache ca-certificates
+COPY --from=build /out/dt241m-controller /usr/local/bin/dt241m-controller
 
 LABEL \
   io.hass.name="DT241M Controller" \
@@ -38,4 +22,4 @@ LABEL \
   io.hass.type="app" \
   io.hass.arch="aarch64|amd64"
 
-CMD ["/run.sh"]
+CMD ["/usr/local/bin/dt241m-controller"]

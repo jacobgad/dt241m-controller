@@ -1,7 +1,4 @@
-node_modules
-dist
 .git
 *.md
 fixtures
-vitest.config.ts
-drizzle.config.ts
+*_test.go

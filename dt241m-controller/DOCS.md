@@ -17,7 +17,7 @@ To develop locally instead, copy the `dt241m-controller` folder into the `/addon
 
 The add-on requires the Home Assistant **Mosquitto broker** add-on (or another broker registered as the Supervisor MQTT service) and the **MQTT integration** in Home Assistant.
 
-Broker address and credentials are read automatically from the Supervisor. You do not enter them anywhere. If no MQTT service is available the add-on refuses to start and logs a clear message.
+Broker address and credentials are read automatically from the Supervisor's services API. You do not enter them anywhere. If no MQTT service is available the add-on refuses to start and logs `supervisor did not return a usable MQTT service`.
 
 If the broker is restarted, the add-on reconnects with backoff and republishes discovery, availability and the last known state. It never sends channel commands to the hardware as a result of an MQTT reconnect.
 
@@ -152,7 +152,7 @@ A scan range is malformed, public or larger than `/16`. Only private ranges are 
 The add-on runs on Home Assistant's internal Docker network and can only reach networks the host can route to. If the DT241M units are on a separate VLAN, ensure the host has a route and no firewall blocks TCP/80.
 
 **MQTT unavailable**
-The add-on exits at start with *No MQTT service is available* if the Mosquitto add-on is not installed or not running. If the broker drops later, the log shows `mqtt_disconnected` followed by reconnect attempts.
+The add-on exits at start with `supervisor did not return a usable MQTT service` if the Mosquitto add-on is not installed or not running. If the broker drops later, the log shows `mqtt_disconnected` followed by `mqtt_connect_error` entries until it reconnects; discovery and state are republished automatically once it does.
 
 **Device moved to a new DHCP address**
 This is handled automatically when the device disappears at its old IP. If the device was offline while its address changed, press **Rescan network**.
