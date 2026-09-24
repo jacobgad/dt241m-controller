@@ -69,21 +69,17 @@ func (t SourceTable) ByLabel(label string) (Source, bool) {
 }
 
 // ForChannel names the transmitter on channel, or SourceNone. When several transmitters
-// share a channel the first by label is reported and Collision is true.
-func (t SourceTable) ForChannel(channel *int) (label string, collision bool) {
+// share a channel the first by label wins; Collisions reports the conflict.
+func (t SourceTable) ForChannel(channel *int) string {
 	if channel == nil {
-		return SourceNone, false
+		return SourceNone
 	}
-	var matches []Source
 	for _, s := range t.sources {
 		if s.Channel == *channel {
-			matches = append(matches, s)
+			return s.Label
 		}
 	}
-	if len(matches) == 0 {
-		return SourceNone, false
-	}
-	return matches[0].Label, len(matches) > 1
+	return SourceNone
 }
 
 // Collisions lists channels claimed by more than one transmitter.

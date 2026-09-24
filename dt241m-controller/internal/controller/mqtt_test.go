@@ -1,7 +1,6 @@
 package controller_test
 
 import (
-	"errors"
 	"regexp"
 	"strings"
 	"testing"
@@ -31,6 +30,7 @@ func started(t *testing.T) (*harness, *testutil.Device, *testutil.Device) {
 }
 
 func TestReceiverChannelDiscoveryPayload(t *testing.T) {
+	t.Parallel()
 	h, _, _ := started(t)
 	cfg := h.mqtt.DiscoveryConfigs()["homeassistant/number/"+rxID+"/channel/config"]
 	expect := map[string]any{
@@ -57,6 +57,7 @@ func TestReceiverChannelDiscoveryPayload(t *testing.T) {
 }
 
 func TestTransmitterChannelIsAConfigNumber(t *testing.T) {
+	t.Parallel()
 	h, _, _ := started(t)
 	configs := h.mqtt.DiscoveryConfigs()
 	cfg := configs["homeassistant/number/"+txID+"/channel/config"]
@@ -72,6 +73,7 @@ func TestTransmitterChannelIsAConfigNumber(t *testing.T) {
 }
 
 func TestRoleSensorAndControllerEntities(t *testing.T) {
+	t.Parallel()
 	h, _, _ := started(t)
 	configs := h.mqtt.DiscoveryConfigs()
 	role := configs["homeassistant/sensor/"+rxID+"/role/config"]
@@ -97,6 +99,7 @@ func TestRoleSensorAndControllerEntities(t *testing.T) {
 }
 
 func TestTopicsNeverContainIPsOrNamesAndUniqueIDsSurviveIPChange(t *testing.T) {
+	t.Parallel()
 	h, _, _ := started(t)
 	before := h.mqtt.DiscoveryConfigs()
 	h.net.Move(rxIP, "192.168.1.12")
@@ -119,6 +122,7 @@ func TestTopicsNeverContainIPsOrNamesAndUniqueIDsSurviveIPChange(t *testing.T) {
 }
 
 func TestAvailabilityAndSubscriptions(t *testing.T) {
+	t.Parallel()
 	h, _, _ := started(t)
 	for _, topic := range []string{mqtt.ControllerAvailability, mqtt.ForDevice(testutil.RxFixtureMAC).Availability, mqtt.ForDevice(testutil.TxFixtureMAC).Availability} {
 		if last, _ := h.mqtt.LastOn(topic); last.Payload != "online" || !last.Retain {
@@ -134,6 +138,7 @@ func TestAvailabilityAndSubscriptions(t *testing.T) {
 }
 
 func TestMQTTCommandChangesReceiverChannel(t *testing.T) {
+	t.Parallel()
 	h, r, _ := started(t)
 	h.mqtt.Deliver(mqtt.ForDevice(testutil.RxFixtureMAC).ChannelSet, "5")
 	eventually(t, func() bool { return h.mqtt.LastPayload(mqtt.ForDevice(testutil.RxFixtureMAC).ChannelState) == "5" }, "state 5")
@@ -146,6 +151,7 @@ func TestMQTTCommandChangesReceiverChannel(t *testing.T) {
 }
 
 func TestInvalidCommandsAreIgnored(t *testing.T) {
+	t.Parallel()
 	h, _, x := started(t)
 	h.mqtt.Deliver(mqtt.ForDevice(testutil.RxFixtureMAC).ChannelSet, "abc")
 	h.mqtt.Deliver(mqtt.ForDevice(testutil.RxFixtureMAC).ChannelSet, "300")
@@ -164,6 +170,7 @@ func TestInvalidCommandsAreIgnored(t *testing.T) {
 }
 
 func TestReconnectAndBirthRepublishWithoutTouchingHardware(t *testing.T) {
+	t.Parallel()
 	h, _, _ := started(t)
 	for _, trigger := range []func(){
 		func() { h.mqtt.SimulateDisconnect(); h.mqtt.SimulateConnect() },
@@ -191,6 +198,7 @@ func TestReconnectAndBirthRepublishWithoutTouchingHardware(t *testing.T) {
 }
 
 func TestShutdownPublishesOfflineAndRefusesCommands(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, harnessOptions{})
 	rx(testutil.RxFixtureMAC, rxIP, h.net)
 	if err := h.ctrl.Start(h.ctx); err != nil {
@@ -200,9 +208,6 @@ func TestShutdownPublishesOfflineAndRefusesCommands(t *testing.T) {
 	if last, _ := h.mqtt.LastOn(mqtt.ControllerAvailability); last.Payload != "offline" || !last.Retain || !h.mqtt.Ended {
 		t.Fatalf("shutdown state %+v ended=%v", last, h.mqtt.Ended)
 	}
-	_, err := h.ctrl.RequestChannelChange(h.ctx, testutil.RxFixtureMAC, 4)
-	var rejected *controller.Rejected
-	if !errors.As(err, &rejected) || rejected.Reason != controller.ReasonShuttingDown {
-		t.Fatalf("expected shutting_down, got %v", err)
-	}
+	_, err := h.ctrl.ChangeChannel(testutil.RxFixtureMAC, 4)
+	rejectedWith(t, err, controller.ReasonShuttingDown)
 }

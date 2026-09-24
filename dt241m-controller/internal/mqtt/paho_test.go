@@ -9,6 +9,7 @@ import (
 )
 
 func TestClientConfigSetsRetainedLastWillAndCredentials(t *testing.T) {
+	t.Parallel()
 	var logs bytes.Buffer
 	opts := PahoOptions{
 		Settings: config.MQTT{Host: "core-mosquitto", Port: 1883, Username: "addons", Password: "s3cret"},

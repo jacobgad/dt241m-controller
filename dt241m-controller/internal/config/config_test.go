@@ -14,6 +14,7 @@ import (
 )
 
 func TestOptionsDefaultsAndMultipleRanges(t *testing.T) {
+	t.Parallel()
 	opts, err := config.ParseOptions([]byte(`{"scan_ranges":["192.168.40.0/24","10.10.5.0/25"]}`))
 	if err != nil {
 		t.Fatal(err)
@@ -27,6 +28,7 @@ func TestOptionsDefaultsAndMultipleRanges(t *testing.T) {
 }
 
 func TestOptionsRejections(t *testing.T) {
+	t.Parallel()
 	cases := map[string]string{
 		`{"scan_ranges":[]}`:                                           "at least one",
 		`{"scan_ranges":["8.8.8.0/24"]}`:                               "private",
@@ -45,6 +47,7 @@ func TestOptionsRejections(t *testing.T) {
 }
 
 func TestCIDRExpansion(t *testing.T) {
+	t.Parallel()
 	p, _ := config.ParseScanRange("192.168.40.17/24")
 	if p.String() != "192.168.40.0/24" {
 		t.Fatalf("not normalised: %s", p)
@@ -69,6 +72,7 @@ func TestCIDRExpansion(t *testing.T) {
 }
 
 func TestMQTTFromEnv(t *testing.T) {
+	t.Parallel()
 	env := map[string]string{"MQTT_HOST": "core-mosquitto", "MQTT_PORT": "1883", "MQTT_USERNAME": "addons", "MQTT_PASSWORD": "secret", "MQTT_SSL": "false"}
 	m, err := config.MQTTFromEnv(func(k string) string { return env[k] })
 	if err != nil || m != (config.MQTT{Host: "core-mosquitto", Port: 1883, Username: "addons", Password: "secret"}) {
@@ -83,6 +87,7 @@ func TestMQTTFromEnv(t *testing.T) {
 }
 
 func TestMQTTFromSupervisor(t *testing.T) {
+	t.Parallel()
 	var gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")

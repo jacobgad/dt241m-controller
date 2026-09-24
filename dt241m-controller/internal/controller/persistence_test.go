@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jacobgad/dt241m-controller/internal/controller"
 	"github.com/jacobgad/dt241m-controller/internal/mqtt"
 	"github.com/jacobgad/dt241m-controller/internal/store"
 	"github.com/jacobgad/dt241m-controller/internal/testutil"
@@ -31,6 +32,7 @@ func openStoreAt(t *testing.T, path string) *store.SQLite {
 }
 
 func TestSQLiteStoreRoundTrip(t *testing.T) {
+	t.Parallel()
 	s := openStore(t, "a.sqlite")
 	if rows, _ := s.LoadAll(context.Background()); len(rows) != 0 {
 		t.Fatal("expected empty store")
@@ -44,15 +46,16 @@ func TestSQLiteStoreRoundTrip(t *testing.T) {
 	}
 	r := rows[0]
 	if r.MAC != testutil.RxFixtureMAC || r.ID != rxID || r.Role != "receiver" || r.IP != rxIP || r.Name != nil ||
-		*r.ReportedName != "ER02_286CD6D8" || *r.ProductName != "ProAVRx ER01" || *r.Firmware != "1.13471.133" || *r.Channel != 2 || r.Online {
+		r.ReportedName != "ER02_286CD6D8" || r.ProductName != "ProAVRx ER01" || r.Firmware != "1.13471.133" || *r.Channel != 2 || r.Online {
 		t.Fatalf("record %+v", r)
 	}
-	if r.LastSeenAt == nil || !r.LastSeenAt.Equal(r.FirstSeenAt) {
+	if !r.LastSeenAt.Equal(r.FirstSeenAt) {
 		t.Fatal("timestamps wrong")
 	}
 }
 
 func TestReopeningDatabaseIsIdempotent(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "reopen.sqlite")
 	first := openStoreAt(t, path)
 	first.Close()
@@ -64,6 +67,7 @@ func TestReopeningDatabaseIsIdempotent(t *testing.T) {
 }
 
 func TestOfflineAdapterSurvivesRestart(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "restart.sqlite")
 	net := testutil.NewNetwork()
 	rx(testutil.RxFixtureMAC, rxIP, net)
@@ -85,7 +89,7 @@ func TestOfflineAdapterSurvivesRestart(t *testing.T) {
 	}
 	defer after.ctrl.Stop(after.ctx)
 
-	a, ok := after.ctrl.Registry.Lookup(testutil.RxFixtureMAC)
+	a, ok := after.ctrl.Adapter(testutil.RxFixtureMAC)
 	if !ok || a.Online || a.IP != rxIP || *a.Channel != 2 {
 		t.Fatalf("adapter %+v ok=%v", a, ok)
 	}
@@ -106,6 +110,7 @@ func TestOfflineAdapterSurvivesRestart(t *testing.T) {
 }
 
 func TestRestartProbesLastKnownIPBeforeFullScan(t *testing.T) {
+	t.Parallel()
 	s := openStore(t, "probe.sqlite")
 	net := testutil.NewNetwork()
 	rx(testutil.RxFixtureMAC, rxIP, net)
@@ -121,7 +126,7 @@ func TestRestartProbesLastKnownIPBeforeFullScan(t *testing.T) {
 	if reqs := net.Requests(); len(reqs) == 0 || reqs[0].IP != rxIP {
 		t.Fatal("last-known IP was not probed first")
 	}
-	a, _ := after.ctrl.Registry.Lookup(testutil.RxFixtureMAC)
+	a := after.adapter(t, testutil.RxFixtureMAC)
 	availability := after.mqtt.PayloadsOn(mqtt.ForDevice(testutil.RxFixtureMAC).Availability)
 	if !a.Online || availability[0] != "offline" || availability[len(availability)-1] != "online" {
 		t.Fatalf("availability %v online=%v", availability, a.Online)
@@ -129,14 +134,13 @@ func TestRestartProbesLastKnownIPBeforeFullScan(t *testing.T) {
 }
 
 func TestRestartDoesNotReapplyRoutes(t *testing.T) {
+	t.Parallel()
 	s := openStore(t, "routes.sqlite")
 	net := testutil.NewNetwork()
 	d := rx(testutil.RxFixtureMAC, rxIP, net)
 	before := newHarness(t, harnessOptions{store: s, net: net})
 	_ = before.ctrl.Start(before.ctx)
-	if _, err := before.ctrl.RequestChannelChange(before.ctx, testutil.RxFixtureMAC, 7); err != nil {
-		t.Fatal(err)
-	}
+	before.change(t, testutil.RxFixtureMAC, 7)
 	before.ctrl.Stop(before.ctx)
 
 	d.SetReported(1)
@@ -149,6 +153,7 @@ func TestRestartDoesNotReapplyRoutes(t *testing.T) {
 }
 
 func TestNameSurvivesRestart(t *testing.T) {
+	t.Parallel()
 	s := openStore(t, "name.sqlite")
 	net := testutil.NewNetwork()
 	rx(testutil.RxFixtureMAC, rxIP, net)
@@ -160,8 +165,8 @@ func TestNameSurvivesRestart(t *testing.T) {
 	after := newHarness(t, harnessOptions{store: s, net: net})
 	_ = after.ctrl.Start(after.ctx)
 	defer after.ctrl.Stop(after.ctx)
-	a, _ := after.ctrl.Registry.Lookup(testutil.RxFixtureMAC)
-	if a.Name == nil || *a.Name != "Main Projector" || *a.ReportedName != "ER02_286CD6D8" {
+	a := after.adapter(t, testutil.RxFixtureMAC)
+	if a.Name == nil || *a.Name != "Main Projector" || a.ReportedName != "ER02_286CD6D8" {
 		t.Fatalf("adapter %+v", a)
 	}
 	if after.mqtt.LastPayload(mqtt.ForDevice(testutil.RxFixtureMAC).NameState) != "Main Projector" {
@@ -174,6 +179,7 @@ func TestNameSurvivesRestart(t *testing.T) {
 }
 
 func TestDHCPMovePersistsOneRecordWithSameNameAndIdentity(t *testing.T) {
+	t.Parallel()
 	s := openStore(t, "dhcp.sqlite")
 	net := testutil.NewNetwork()
 	rx(testutil.RxFixtureMAC, "192.168.1.2", net)
@@ -211,6 +217,7 @@ func TestDHCPMovePersistsOneRecordWithSameNameAndIdentity(t *testing.T) {
 }
 
 func TestDiscoveryPreservesName(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, harnessOptions{})
 	d := rx(testutil.RxFixtureMAC, rxIP, h.net)
 	h.discover(t)
@@ -218,12 +225,12 @@ func TestDiscoveryPreservesName(t *testing.T) {
 	d.SetTemplate("dev_name", "ER02_RENAMED_ON_DEVICE")
 	d.SetTemplate("version", "1.13471.999")
 	h.discover(t)
-	a, _ := h.ctrl.Registry.Lookup(testutil.RxFixtureMAC)
-	if *a.Name != "Main Projector" || *a.ReportedName != "ER02_RENAMED_ON_DEVICE" || *a.Firmware != "1.13471.999" {
+	a := h.adapter(t, testutil.RxFixtureMAC)
+	if *a.Name != "Main Projector" || a.ReportedName != "ER02_RENAMED_ON_DEVICE" || a.Firmware != "1.13471.999" {
 		t.Fatalf("adapter %+v", a)
 	}
 	rows, _ := h.store.LoadAll(context.Background())
-	if *rows[0].Name != "Main Projector" || *rows[0].ReportedName != "ER02_RENAMED_ON_DEVICE" {
+	if *rows[0].Name != "Main Projector" || rows[0].ReportedName != "ER02_RENAMED_ON_DEVICE" {
 		t.Fatal("store wrong")
 	}
 	if h.mqtt.LastPayload(mqtt.ForDevice(testutil.RxFixtureMAC).NameState) != "Main Projector" {
@@ -232,6 +239,7 @@ func TestDiscoveryPreservesName(t *testing.T) {
 }
 
 func TestRenameKeepsIdentity(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, harnessOptions{})
 	rx(testutil.RxFixtureMAC, rxIP, h.net)
 	h.discover(t)
@@ -268,33 +276,36 @@ func TestRenameKeepsIdentity(t *testing.T) {
 }
 
 func TestNameValidationAndClearing(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, harnessOptions{})
 	rx(testutil.RxFixtureMAC, rxIP, h.net)
 	h.discover(t)
 	nameTopic := mqtt.ForDevice(testutil.RxFixtureMAC).NameState
 
-	h.ctrl.Rename(h.ctx, testutil.RxFixtureMAC, "  Lobby TV  ")
-	a, _ := h.ctrl.Registry.Lookup(testutil.RxFixtureMAC)
+	if _, err := h.ctrl.Rename(h.ctx, testutil.RxFixtureMAC, "  Lobby TV  "); err != nil {
+		t.Fatal(err)
+	}
+	a := h.adapter(t, testutil.RxFixtureMAC)
 	if *a.Name != "Lobby TV" {
 		t.Fatal("not trimmed")
 	}
-	if o := h.ctrl.Rename(h.ctx, testutil.RxFixtureMAC, strings.Repeat("x", 65)); o.Renamed {
+	if _, err := h.ctrl.Rename(h.ctx, testutil.RxFixtureMAC, strings.Repeat("x", 65)); err == nil {
 		t.Fatal("accepted too long")
 	}
-	if o := h.ctrl.Rename(h.ctx, testutil.RxFixtureMAC, "bad\x07name"); o.Renamed {
+	if _, err := h.ctrl.Rename(h.ctx, testutil.RxFixtureMAC, "bad\x07name"); err == nil {
 		t.Fatal("accepted control chars")
 	}
-	if o := h.ctrl.Rename(h.ctx, "00:11:22:33:44:55", "Ghost"); o.Renamed {
-		t.Fatal("renamed unknown device")
-	}
+	_, err := h.ctrl.Rename(h.ctx, "00:11:22:33:44:55", "Ghost")
+	rejectedWith(t, err, controller.ReasonUnknownDevice)
 	if h.mqtt.LastPayload(nameTopic) != "Lobby TV" {
 		t.Fatal("rejected rename changed state")
 	}
 
-	if o := h.ctrl.Rename(h.ctx, testutil.RxFixtureMAC, "   "); !o.Renamed || o.Name != nil {
-		t.Fatalf("clear outcome %+v", o)
+	cleared, err := h.ctrl.Rename(h.ctx, testutil.RxFixtureMAC, "   ")
+	if err != nil || cleared.Name != nil {
+		t.Fatalf("clear: %+v %v", cleared, err)
 	}
-	a, _ = h.ctrl.Registry.Lookup(testutil.RxFixtureMAC)
+	a = h.adapter(t, testutil.RxFixtureMAC)
 	if a.Name != nil || h.mqtt.LastPayload(nameTopic) != "ER02_286CD6D8" {
 		t.Fatal("name not cleared")
 	}

@@ -16,6 +16,7 @@ import (
 )
 
 func TestDHCPReuseNeverWritesToWrongDevice(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, harnessOptions{})
 	a := rx(rxA, "192.168.1.5", h.net, func(o *testutil.DeviceOptions) { o.Overrides = map[string]any{"dev_name": "RX_A"} })
 	h.discover(t)
@@ -27,10 +28,7 @@ func TestDHCPReuseNeverWritesToWrongDevice(t *testing.T) {
 	})
 	h.net.ResetRequests()
 
-	outcome, err := h.ctrl.RequestChannelChange(h.ctx, rxA, 7)
-	if err != nil {
-		t.Fatal(err)
-	}
+	outcome := h.change(t, rxA, 7)
 	if len(h.net.RequestsTo("192.168.1.5", "get_device_info_proav")) == 0 {
 		t.Fatal("old IP was not verified")
 	}
@@ -59,10 +57,19 @@ func TestDHCPReuseNeverWritesToWrongDevice(t *testing.T) {
 	if verifyNew < 0 || verifyNew > firstWrite {
 		t.Fatal("new IP was not verified before writing")
 	}
-	adapterA, _ := h.ctrl.Registry.Lookup(rxA)
-	adapterB, _ := h.ctrl.Registry.Lookup(rxB)
-	if adapterA.IP != "192.168.1.10" || adapterA.ID != "dt241m_aaaaaaaaaaaa" || adapterB.IP != "192.168.1.5" || len(h.ctrl.Registry.All()) != 2 {
-		t.Fatal("registry wrong")
+	adapterA := h.adapter(t, rxA)
+	adapterB := h.adapter(t, rxB)
+	if adapterA.IP != "192.168.1.10" {
+		t.Fatalf("A should have moved to .10, is at %s", adapterA.IP)
+	}
+	if adapterA.ID != "dt241m_aaaaaaaaaaaa" {
+		t.Fatalf("A's identity changed: %s", adapterA.ID)
+	}
+	if adapterB.IP != "192.168.1.5" {
+		t.Fatalf("B should own .5, is at %s", adapterB.IP)
+	}
+	if n := len(h.ctrl.Adapters()); n != 2 {
+		t.Fatalf("expected 2 adapters, got %d", n)
 	}
 	if h.mqtt.LastPayload(mqtt.ForDevice(rxA).ChannelState) != "7" || h.mqtt.LastPayload(mqtt.ForDevice(rxB).ChannelState) != "9" {
 		t.Fatal("published states wrong")
@@ -73,31 +80,30 @@ func TestDHCPReuseNeverWritesToWrongDevice(t *testing.T) {
 }
 
 func TestNoWriteWhenTargetCannotBeLocated(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, harnessOptions{})
 	rx(rxA, "192.168.1.5", h.net)
 	h.discover(t)
 	h.net.Remove("192.168.1.5")
 	b := rx(rxB, "192.168.1.5", h.net)
 
-	outcome, err := h.ctrl.RequestChannelChange(h.ctx, rxA, 7)
-	if err != nil {
-		t.Fatal(err)
-	}
+	outcome := h.change(t, rxA, 7)
 	if outcome.Status != controller.StatusFailed || outcome.Reason != controller.ReasonDeviceNotLocated || b.Writes() != 0 {
 		t.Fatalf("outcome %+v writes %d", outcome, b.Writes())
 	}
-	a, _ := h.ctrl.Registry.Lookup(rxA)
+	a := h.adapter(t, rxA)
 	if a.Online {
 		t.Fatal("should be offline")
 	}
 }
 
 func TestNoWriteWhenStoredIPSilentAndDeviceGone(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, harnessOptions{})
 	rx(rxA, "192.168.1.5", h.net)
 	h.discover(t)
 	h.net.Remove("192.168.1.5")
-	outcome, _ := h.ctrl.RequestChannelChange(h.ctx, rxA, 3)
+	outcome := h.change(t, rxA, 3)
 	if outcome.Status != controller.StatusFailed || len(h.net.AllWrites()) != 0 {
 		t.Fatal("unexpected write")
 	}
@@ -107,11 +113,12 @@ func TestNoWriteWhenStoredIPSilentAndDeviceGone(t *testing.T) {
 }
 
 func TestFollowsDeviceToNewIPWhenOldIsSilent(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, harnessOptions{})
 	a := rx(rxA, "192.168.1.5", h.net)
 	h.discover(t)
 	h.net.Move("192.168.1.5", "192.168.1.13")
-	outcome, _ := h.ctrl.RequestChannelChange(h.ctx, rxA, 3)
+	outcome := h.change(t, rxA, 3)
 	if outcome.Status != controller.StatusMatched || a.ReportedChannel() != 3 || len(h.net.WritesTo("192.168.1.13")) != 1 {
 		t.Fatalf("outcome %+v", outcome)
 	}
@@ -121,21 +128,19 @@ func TestFollowsDeviceToNewIPWhenOldIsSilent(t *testing.T) {
 }
 
 func TestRefusesUnknownRolesAndUnknownDevices(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, harnessOptions{})
 	rx("cc:cc:cc:cc:cc:cc", "192.168.1.6", h.net, func(o *testutil.DeviceOptions) {
 		o.Overrides = map[string]any{"product_name": "Mystery", "model": "unknown"}
 	})
 	h.discover(t)
-	mystery, _ := h.ctrl.Registry.Lookup("cc:cc:cc:cc:cc:cc")
+	mystery := h.adapter(t, "cc:cc:cc:cc:cc:cc")
 	if mystery.Role != "unknown" {
 		t.Fatal("expected unknown role")
 	}
 	for macAddr, reason := range map[string]controller.FailureReason{"cc:cc:cc:cc:cc:cc": controller.ReasonUnknownRole, "dd:dd:dd:dd:dd:dd": controller.ReasonUnknownDevice} {
-		_, err := h.ctrl.RequestChannelChange(h.ctx, macAddr, 2)
-		var rej *controller.Rejected
-		if !errors.As(err, &rej) || rej.Reason != reason {
-			t.Fatalf("%s: got %v want %s", macAddr, err, reason)
-		}
+		_, err := h.ctrl.ChangeChannel(macAddr, 2)
+		rejectedWith(t, err, reason)
 	}
 	if len(h.net.AllWrites()) != 0 {
 		t.Fatal("a write was sent")
@@ -155,6 +160,7 @@ func gatedWrite(gate <-chan struct{}) testutil.Responder {
 }
 
 func TestSameReceiverCommandsExecuteInOrder(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, harnessOptions{})
 	d := rx(rxA, "192.168.1.5", h.net)
 	h.discover(t)
@@ -173,9 +179,9 @@ func TestSameReceiverCommandsExecuteInOrder(t *testing.T) {
 	}
 
 	results := make(chan controller.Outcome, 2)
-	go func() { o, _ := h.ctrl.RequestChannelChange(h.ctx, rxA, 2); results <- o }()
+	go func() { results <- h.change(t, rxA, 2) }()
 	eventually(t, func() bool { return len(h.net.WritesTo("192.168.1.5")) == 1 }, "first write to start")
-	go func() { o, _ := h.ctrl.RequestChannelChange(h.ctx, rxA, 5); results <- o }()
+	go func() { results <- h.change(t, rxA, 5) }()
 	time.Sleep(30 * time.Millisecond)
 	if len(h.net.WritesTo("192.168.1.5")) != 1 {
 		t.Fatal("second write started before first completed")
@@ -199,6 +205,7 @@ func TestSameReceiverCommandsExecuteInOrder(t *testing.T) {
 }
 
 func TestDifferentReceiversRunConcurrently(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, harnessOptions{})
 	a := rx(rxA, "192.168.1.5", h.net)
 	b := rx(rxB, "192.168.1.6", h.net)
@@ -207,9 +214,9 @@ func TestDifferentReceiversRunConcurrently(t *testing.T) {
 	a.Responder = gatedWrite(gate)
 
 	first := make(chan controller.Outcome, 1)
-	go func() { o, _ := h.ctrl.RequestChannelChange(h.ctx, rxA, 3); first <- o }()
+	go func() { first <- h.change(t, rxA, 3) }()
 	eventually(t, func() bool { return len(h.net.WritesTo("192.168.1.5")) == 1 }, "A's write to start")
-	second, _ := h.ctrl.RequestChannelChange(h.ctx, rxB, 4)
+	second := h.change(t, rxB, 4)
 	if second.Status != controller.StatusMatched || b.ReportedChannel() != 4 || a.ReportedChannel() != 2 {
 		t.Fatal("B should complete while A is blocked")
 	}
@@ -229,10 +236,11 @@ func lastIndex(list []string, v string) int {
 }
 
 func TestStaleFrontPanelIsNotAnError(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, harnessOptions{})
 	d := rx(testutil.RxFixtureMAC, "192.168.1.5", h.net, func(o *testutil.DeviceOptions) { o.Reported = intp(3); o.FrontPanel = intp(3) })
 	h.discover(t)
-	outcome, _ := h.ctrl.RequestChannelChange(h.ctx, testutil.RxFixtureMAC, 2)
+	outcome := h.change(t, testutil.RxFixtureMAC, 2)
 	if d.ReportedChannel() != 2 || d.Video != 2 || d.FrontPanel != 3 {
 		t.Fatalf("device %+v", d)
 	}
@@ -245,11 +253,12 @@ func TestStaleFrontPanelIsNotAnError(t *testing.T) {
 }
 
 func TestAckWithoutApplyIsMismatchWithoutRetry(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, harnessOptions{})
 	d := rx(testutil.RxFixtureMAC, "192.168.1.5", h.net, func(o *testutil.DeviceOptions) { o.AckWithoutApply = true })
 	h.discover(t)
 	h.mqtt.Clear()
-	outcome, _ := h.ctrl.RequestChannelChange(h.ctx, testutil.RxFixtureMAC, 5)
+	outcome := h.change(t, testutil.RxFixtureMAC, 5)
 	if outcome.Status != controller.StatusMismatch || *outcome.Reported != 2 || d.Writes() != 1 {
 		t.Fatalf("outcome %+v writes %d", outcome, d.Writes())
 	}
@@ -264,10 +273,11 @@ func TestAckWithoutApplyIsMismatchWithoutRetry(t *testing.T) {
 }
 
 func TestWriteTimeoutIsAmbiguousAndNotResent(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, harnessOptions{})
 	d := rx(testutil.RxFixtureMAC, "192.168.1.5", h.net, func(o *testutil.DeviceOptions) { o.WriteHangs = true })
 	h.discover(t)
-	outcome, _ := h.ctrl.RequestChannelChange(h.ctx, testutil.RxFixtureMAC, 4)
+	outcome := h.change(t, testutil.RxFixtureMAC, 4)
 	if d.Writes() != 1 || len(h.net.WritesTo("192.168.1.5")) != 1 {
 		t.Fatal("write was resent")
 	}
@@ -280,26 +290,29 @@ func TestWriteTimeoutIsAmbiguousAndNotResent(t *testing.T) {
 }
 
 func TestRejectedWritePublishesActualState(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, harnessOptions{})
 	rx(testutil.RxFixtureMAC, "192.168.1.5", h.net, func(o *testutil.DeviceOptions) { o.RejectWrites = true })
 	h.discover(t)
-	outcome, _ := h.ctrl.RequestChannelChange(h.ctx, testutil.RxFixtureMAC, 4)
+	outcome := h.change(t, testutil.RxFixtureMAC, 4)
 	if outcome.Status != controller.StatusFailed || outcome.Reason != controller.ReasonWriteRejected || *outcome.Reported != 2 {
 		t.Fatalf("outcome %+v", outcome)
 	}
 }
 
 func TestChannelZeroIsReal(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, harnessOptions{})
 	d := rx(testutil.RxFixtureMAC, "192.168.1.5", h.net)
 	h.discover(t)
-	outcome, _ := h.ctrl.RequestChannelChange(h.ctx, testutil.RxFixtureMAC, 0)
+	outcome := h.change(t, testutil.RxFixtureMAC, 0)
 	if outcome.Status != controller.StatusMatched || d.ReportedChannel() != 0 || h.mqtt.LastPayload(mqtt.ForDevice(testutil.RxFixtureMAC).ChannelState) != "0" {
 		t.Fatalf("outcome %+v", outcome)
 	}
 }
 
 func TestParsesHTMLLabelledJSON(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, harnessOptions{})
 	rx(testutil.RxFixtureMAC, "192.168.1.5", h.net, func(o *testutil.DeviceOptions) {
 		o.Responder = func(rpc *testutil.RPC, _ *testutil.Device) *http.Response {
@@ -310,12 +323,13 @@ func TestParsesHTMLLabelledJSON(t *testing.T) {
 		}
 	})
 	h.discover(t)
-	if _, ok := h.ctrl.Registry.Lookup(testutil.RxFixtureMAC); !ok {
+	if _, ok := h.ctrl.Adapter(testutil.RxFixtureMAC); !ok {
 		t.Fatal("device not discovered from text/html response")
 	}
 }
 
 func TestBackToBackMQTTCommandsExecuteInDeliveryOrder(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, harnessOptions{})
 	d := rx(rxA, "192.168.1.5", h.net)
 	h.discover(t)
@@ -354,6 +368,7 @@ func TestBackToBackMQTTCommandsExecuteInDeliveryOrder(t *testing.T) {
 }
 
 func TestCancelledWriteIsAmbiguousNotRejected(t *testing.T) {
+	t.Parallel()
 	net := testutil.NewNetwork()
 	d := rx(testutil.RxFixtureMAC, "192.168.1.5", net, func(o *testutil.DeviceOptions) { o.WriteHangs = true })
 	ctx, cancel := context.WithCancel(context.Background())
@@ -373,10 +388,11 @@ func TestCancelledWriteIsAmbiguousNotRejected(t *testing.T) {
 }
 
 func TestRenameSurvivesConcurrentPollPersist(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, harnessOptions{})
 	rx(testutil.RxFixtureMAC, "192.168.1.5", h.net)
 	h.discover(t)
-	snapshot, _ := h.ctrl.Registry.Lookup(testutil.RxFixtureMAC)
+	snapshot := h.adapter(t, testutil.RxFixtureMAC)
 	h.ctrl.Rename(h.ctx, testutil.RxFixtureMAC, "Main Projector")
 	if err := h.store.Save(context.Background(), snapshot); err != nil {
 		t.Fatal(err)

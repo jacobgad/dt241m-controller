@@ -17,20 +17,25 @@ import (
 const MaxNameLength = 64
 
 // Adapter is one DT241M unit. MAC is its identity; IP is only where it was last reached.
+//
+// Name is a pointer because "no user name" (fall back to the hardware name) is a real
+// state distinct from any string. Channel is a pointer because 0 is a valid channel and
+// rows persisted before a device ever answered have none. The remaining optional strings
+// use "" for absent; empty is never a meaningful value for them.
 type Adapter struct {
 	MAC          string
 	ID           string
 	Role         dt241m.Role
 	IP           string
 	Name         *string
-	ReportedName *string
-	ProductName  *string
-	Model        *string
-	Firmware     *string
+	ReportedName string
+	ProductName  string
+	Model        string
+	Firmware     string
 	Channel      *int
 	Online       bool
 	FirstSeenAt  time.Time
-	LastSeenAt   *time.Time
+	LastSeenAt   time.Time
 }
 
 // DisplayName is the user's name when set, otherwise what the hardware reports.
@@ -38,26 +43,35 @@ func (a Adapter) DisplayName() string {
 	switch {
 	case a.Name != nil:
 		return *a.Name
-	case a.ReportedName != nil:
-		return *a.ReportedName
-	case a.ProductName != nil:
-		return *a.ProductName
+	case a.ReportedName != "":
+		return a.ReportedName
+	case a.ProductName != "":
+		return a.ProductName
 	default:
 		return a.ID
 	}
 }
 
 // Observation describes what changed when a device answered a probe.
+//
+// StateChanged covers the values Home Assistant shows as state (IP, channel);
+// MetadataChanged covers what goes into the device's discovery config (names,
+// model, firmware, role). RoleChanged is broken out because a role flip also
+// moves entities between platforms.
 type Observation struct {
 	Adapter         Adapter
 	Created         bool
 	CameOnline      bool
-	IPChanged       bool
-	PreviousIP      string
-	ChannelChanged  bool
+	StateChanged    bool
 	MetadataChanged bool
 	RoleChanged     bool
+	PreviousIP      string
 	Displaced       *Adapter
+}
+
+// Changed reports whether anything worth persisting or publishing happened.
+func (o Observation) Changed() bool {
+	return o.Created || o.CameOnline || o.StateChanged || o.MetadataChanged
 }
 
 // Counts feeds the controller's Known/Online sensors.
@@ -203,27 +217,26 @@ func (r *Registry) RecordObservation(ip string, info *dt241m.DeviceInfo, now tim
 			Channel:      &channel,
 			Online:       true,
 			FirstSeenAt:  now,
-			LastSeenAt:   &now,
+			LastSeenAt:   now,
 		}
 		r.adapters[macAddr] = a
-		return Observation{Adapter: *a, Created: true, CameOnline: true, ChannelChanged: true, MetadataChanged: true, Displaced: displaced}, true
+		return Observation{Adapter: *a, Created: true, CameOnline: true, StateChanged: true, MetadataChanged: true, Displaced: displaced}, true
 	}
 
 	obs := Observation{
-		CameOnline:     !existing.Online,
-		IPChanged:      existing.IP != ip,
-		ChannelChanged: existing.Channel == nil || *existing.Channel != channel,
-		RoleChanged:    existing.Role != role,
-		Displaced:      displaced,
+		CameOnline:   !existing.Online,
+		StateChanged: existing.IP != ip || existing.Channel == nil || *existing.Channel != channel,
+		RoleChanged:  existing.Role != role,
+		Displaced:    displaced,
 	}
-	if obs.IPChanged {
+	if existing.IP != ip {
 		obs.PreviousIP = existing.IP
 	}
 	obs.MetadataChanged = obs.RoleChanged ||
-		!strEq(existing.ReportedName, info.DevName) ||
-		!strEq(existing.ProductName, info.ProductName) ||
-		!strEq(existing.Model, info.Model) ||
-		!strEq(existing.Firmware, info.Version)
+		existing.ReportedName != info.DevName ||
+		existing.ProductName != info.ProductName ||
+		existing.Model != info.Model ||
+		existing.Firmware != info.Version
 
 	existing.IP = ip
 	existing.Role = role
@@ -233,14 +246,7 @@ func (r *Registry) RecordObservation(ip string, info *dt241m.DeviceInfo, now tim
 	existing.Firmware = info.Version
 	existing.Channel = &channel
 	existing.Online = true
-	existing.LastSeenAt = &now
+	existing.LastSeenAt = now
 	obs.Adapter = *existing
 	return obs, true
-}
-
-func strEq(a, b *string) bool {
-	if a == nil || b == nil {
-		return a == nil && b == nil
-	}
-	return *a == *b
 }

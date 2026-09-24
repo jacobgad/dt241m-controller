@@ -25,6 +25,9 @@ type Store interface {
 	SetName(ctx context.Context, macAddr string, name *string) error
 }
 
+// ErrNotFound is returned when a MAC has no row.
+var ErrNotFound = errors.New("store: adapter not found")
+
 const schemaVersion = 1
 
 var migrations = []string{
@@ -141,22 +144,21 @@ func (s *SQLite) LoadAll(ctx context.Context) ([]registry.Adapter, error) {
 		}
 		a.ID = mac.AdapterID(a.MAC)
 		a.Role = dt241m.Role(role)
-		a.Name = nullStr(name)
-		a.ReportedName = nullStr(reported)
-		a.ProductName = nullStr(product)
-		a.Model = nullStr(model)
-		a.Firmware = nullStr(fw)
-		if ip.Valid {
-			a.IP = ip.String
+		if name.Valid {
+			a.Name = &name.String
 		}
+		a.ReportedName = reported.String
+		a.ProductName = product.String
+		a.Model = model.String
+		a.Firmware = fw.String
+		a.IP = ip.String
 		if channel.Valid {
 			c := int(channel.Int64)
 			a.Channel = &c
 		}
 		a.FirstSeenAt = time.UnixMilli(firstSeen)
 		if lastSeen.Valid {
-			t := time.UnixMilli(lastSeen.Int64)
-			a.LastSeenAt = &t
+			a.LastSeenAt = time.UnixMilli(lastSeen.Int64)
 		}
 		out = append(out, a)
 	}
@@ -166,12 +168,8 @@ func (s *SQLite) LoadAll(ctx context.Context) ([]registry.Adapter, error) {
 // Save upserts the hardware-observed columns of a; name is left untouched on conflict.
 func (s *SQLite) Save(ctx context.Context, a registry.Adapter) error {
 	var lastSeen any
-	if a.LastSeenAt != nil {
+	if !a.LastSeenAt.IsZero() {
 		lastSeen = a.LastSeenAt.UnixMilli()
-	}
-	var ip any
-	if a.IP != "" {
-		ip = a.IP
 	}
 	_, err := s.db.ExecContext(ctx, `INSERT INTO adapters
 		(mac, name, reported_name, role, last_known_ip, last_known_channel, product_name, model, firmware, first_seen_at, last_seen_at)
@@ -186,39 +184,38 @@ func (s *SQLite) Save(ctx context.Context, a registry.Adapter) error {
 			firmware = excluded.firmware,
 			first_seen_at = excluded.first_seen_at,
 			last_seen_at = excluded.last_seen_at`,
-		a.MAC, ptr(a.Name), ptr(a.ReportedName), string(a.Role), ip, ptrInt(a.Channel),
-		ptr(a.ProductName), ptr(a.Model), ptr(a.Firmware), a.FirstSeenAt.UnixMilli(), lastSeen)
+		a.MAC, nullable(a.Name), emptyNull(a.ReportedName), string(a.Role), emptyNull(a.IP), nullableInt(a.Channel),
+		emptyNull(a.ProductName), emptyNull(a.Model), emptyNull(a.Firmware), a.FirstSeenAt.UnixMilli(), lastSeen)
 	return err
 }
 
 // SetName stores the user-chosen name (nil clears it) for an existing adapter.
 func (s *SQLite) SetName(ctx context.Context, macAddr string, name *string) error {
-	res, err := s.db.ExecContext(ctx, "UPDATE adapters SET name = ? WHERE mac = ?", ptr(name), macAddr)
+	res, err := s.db.ExecContext(ctx, "UPDATE adapters SET name = ? WHERE mac = ?", nullable(name), macAddr)
 	if err != nil {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return errors.New("adapter not found")
+		return ErrNotFound
 	}
 	return nil
 }
 
-func nullStr(v sql.NullString) *string {
-	if !v.Valid {
-		return nil
-	}
-	s := v.String
-	return &s
-}
-
-func ptr(s *string) any {
+func nullable(s *string) any {
 	if s == nil {
 		return nil
 	}
 	return *s
 }
 
-func ptrInt(i *int) any {
+func emptyNull(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+func nullableInt(i *int) any {
 	if i == nil {
 		return nil
 	}

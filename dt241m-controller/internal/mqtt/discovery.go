@@ -30,17 +30,24 @@ const (
 	controllerName = "DT241M Controller"
 )
 
-// Icons distinguish roles at a glance in the Home Assistant UI.
-var Icons = map[string]string{
-	"receiver":    "mdi:monitor",
-	"transmitter": "mdi:broadcast",
-	"unknown":     "mdi:help-network",
-	"controller":  "mdi:video-switch",
-	"rescan":      "mdi:radar",
-	"name":        "mdi:rename-box",
-	"ip":          "mdi:ip-network",
-	"role":        "mdi:swap-horizontal",
-	"source":      "mdi:video-input-hdmi",
+const (
+	iconController = "mdi:video-switch"
+	iconRescan     = "mdi:radar"
+	iconName       = "mdi:rename-box"
+	iconIP         = "mdi:ip-network"
+	iconRole       = "mdi:swap-horizontal"
+	iconSource     = "mdi:video-input-hdmi"
+)
+
+func roleIcon(role dt241m.Role) string {
+	switch role {
+	case dt241m.RoleReceiver:
+		return "mdi:monitor"
+	case dt241m.RoleTransmitter:
+		return "mdi:broadcast"
+	default:
+		return "mdi:help-network"
+	}
 }
 
 func origin(o Origin) map[string]any {
@@ -70,18 +77,18 @@ func adapterDevice(a registry.Adapter) map[string]any {
 		"via_device":   ControllerIdentifier,
 	}
 	switch {
-	case a.ProductName != nil:
-		device["model"] = *a.ProductName
-	case a.Model != nil:
-		device["model"] = *a.Model
+	case a.ProductName != "":
+		device["model"] = a.ProductName
+	case a.Model != "":
+		device["model"] = a.Model
 	default:
 		device["model"] = "DT241M"
 	}
-	if a.Model != nil {
-		device["model_id"] = *a.Model
+	if a.Model != "" {
+		device["model_id"] = a.Model
 	}
-	if a.Firmware != nil {
-		device["sw_version"] = *a.Firmware
+	if a.Firmware != "" {
+		device["sw_version"] = a.Firmware
 	}
 	return device
 }
@@ -113,7 +120,7 @@ func ReceiverChannel(a registry.Adapter, o Origin) Message {
 			"optimistic":    false,
 			"retain":        false,
 			"qos":           1,
-			"icon":          Icons["receiver"],
+			"icon":          roleIcon(dt241m.RoleReceiver),
 			"device":        adapterDevice(a),
 			"origin":        origin(o),
 		}),
@@ -140,7 +147,7 @@ func TransmitterChannel(a registry.Adapter, o Origin) Message {
 			"retain":          false,
 			"qos":             1,
 			"entity_category": "config",
-			"icon":            Icons["transmitter"],
+			"icon":            roleIcon(dt241m.RoleTransmitter),
 			"device":          adapterDevice(a),
 			"origin":          origin(o),
 		}),
@@ -166,7 +173,7 @@ func ReceiverSource(a registry.Adapter, options []string, o Origin) Message {
 			"optimistic":    false,
 			"retain":        false,
 			"qos":           1,
-			"icon":          Icons["source"],
+			"icon":          iconSource,
 			"device":        adapterDevice(a),
 			"origin":        origin(o),
 		}),
@@ -183,7 +190,7 @@ func ReadOnlyChannel(a registry.Adapter, o Origin) Message {
 			"unique_id":   a.ID + "_channel",
 			"object_id":   a.ID + "_channel",
 			"state_topic": t.ChannelState,
-			"icon":        Icons[string(a.Role)],
+			"icon":        roleIcon(a.Role),
 			"device":      adapterDevice(a),
 			"origin":      origin(o),
 		}),
@@ -207,7 +214,7 @@ func Name(a registry.Adapter, o Origin) Message {
 			"retain":          false,
 			"qos":             1,
 			"entity_category": "config",
-			"icon":            Icons["name"],
+			"icon":            iconName,
 			"availability":    []map[string]any{controllerAvailability()},
 			"device":          adapterDevice(a),
 			"origin":          origin(o),
@@ -225,7 +232,7 @@ func IPAddress(a registry.Adapter, o Origin) Message {
 			"object_id":       a.ID + "_ip_address",
 			"state_topic":     ForDevice(a.MAC).IPState,
 			"entity_category": "diagnostic",
-			"icon":            Icons["ip"],
+			"icon":            iconIP,
 			"device":          adapterDevice(a),
 			"origin":          origin(o),
 		}),
@@ -242,7 +249,7 @@ func Role(a registry.Adapter, o Origin) Message {
 			"object_id":       a.ID + "_role",
 			"state_topic":     ForDevice(a.MAC).RoleState,
 			"entity_category": "diagnostic",
-			"icon":            Icons["role"],
+			"icon":            iconRole,
 			"device":          adapterDevice(a),
 			"origin":          origin(o),
 		}),
@@ -290,7 +297,7 @@ func RescanButton(o Origin) Message {
 			"payload_press": PayloadPress,
 			"retain":        false,
 			"qos":           1,
-			"icon":          Icons["rescan"],
+			"icon":          iconRescan,
 			"availability":  []map[string]any{controllerAvailability()},
 			"device":        controllerDevice(o),
 			"origin":        origin(o),
@@ -307,7 +314,7 @@ func countSensor(o Origin, objectID, name, stateTopic string) Message {
 			"object_id":    ControllerNodeID + "_" + objectID,
 			"state_topic":  stateTopic,
 			"state_class":  "measurement",
-			"icon":         Icons["controller"],
+			"icon":         iconController,
 			"availability": []map[string]any{controllerAvailability()},
 			"device":       controllerDevice(o),
 			"origin":       origin(o),

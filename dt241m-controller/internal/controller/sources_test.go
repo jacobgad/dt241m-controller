@@ -46,10 +46,18 @@ func options(cfg map[string]any) []string {
 }
 
 func TestReceiverSourceSelectListsTransmittersByName(t *testing.T) {
+	t.Parallel()
 	h, _, _ := matrix(t)
 	cfg := sourceConfig(h)
-	if cfg["unique_id"] != rxID+"_source" || cfg["command_topic"] != "dt241m/device/fc19286cd6d8/source/set" || cfg["state_topic"] != "dt241m/device/fc19286cd6d8/source/state" || cfg["optimistic"] != false {
-		t.Fatalf("cfg %v", cfg)
+	for key, want := range map[string]any{
+		"unique_id":     rxID + "_source",
+		"command_topic": "dt241m/device/fc19286cd6d8/source/set",
+		"state_topic":   "dt241m/device/fc19286cd6d8/source/state",
+		"optimistic":    false,
+	} {
+		if cfg[key] != want {
+			t.Fatalf("%s = %v, want %v", key, cfg[key], want)
+		}
 	}
 	if got := options(cfg); !reflect.DeepEqual(got, []string{"Lectern PC", "Stage Camera"}) {
 		t.Fatalf("options %v", got)
@@ -65,10 +73,11 @@ func TestReceiverSourceSelectListsTransmittersByName(t *testing.T) {
 }
 
 func TestSelectingASourceTunesTheReceiver(t *testing.T) {
+	t.Parallel()
 	h, receiver, _ := matrix(t)
-	outcome, err := h.ctrl.RequestSourceChange(h.ctx, testutil.RxFixtureMAC, "Stage Camera")
-	if err != nil || outcome.Status != controller.StatusMatched || outcome.Requested != 1 {
-		t.Fatalf("outcome %+v err %v", outcome, err)
+	outcome := h.selectSource(t, testutil.RxFixtureMAC, "Stage Camera")
+	if outcome.Status != controller.StatusMatched || outcome.Requested != 1 {
+		t.Fatalf("outcome %+v", outcome)
 	}
 	if receiver.ReportedChannel() != 1 {
 		t.Fatal("receiver not tuned")
@@ -82,6 +91,7 @@ func TestSelectingASourceTunesTheReceiver(t *testing.T) {
 }
 
 func TestSourceCommandOverMQTT(t *testing.T) {
+	t.Parallel()
 	h, receiver, _ := matrix(t)
 	h.mqtt.Deliver(mqtt.ForDevice(testutil.RxFixtureMAC).SourceSet, "Stage Camera")
 	eventually(t, func() bool { return receiver.ReportedChannel() == 1 }, "receiver to tune")
@@ -91,21 +101,22 @@ func TestSourceCommandOverMQTT(t *testing.T) {
 }
 
 func TestUnusedChannelShowsNoneButNoneIsRejectedAsCommand(t *testing.T) {
+	t.Parallel()
 	h, receiver, _ := matrix(t)
 	receiver.SetReported(9)
 	h.ctrl.PollKnownDevices(h.ctx)
 	if h.mqtt.LastPayload(mqtt.ForDevice(testutil.RxFixtureMAC).SourceState) != "none" {
 		t.Fatalf("expected none, got %q", h.mqtt.LastPayload(mqtt.ForDevice(testutil.RxFixtureMAC).SourceState))
 	}
-	if _, err := h.ctrl.RequestSourceChange(h.ctx, testutil.RxFixtureMAC, "none"); err == nil {
-		t.Fatal("none must not be accepted as a source")
-	}
+	_, err := h.ctrl.ChangeSource(testutil.RxFixtureMAC, "none")
+	rejectedWith(t, err, controller.ReasonUnknownSource)
 	if len(h.net.AllWrites()) != 0 {
 		t.Fatal("no write expected")
 	}
 }
 
 func TestSourceOptionsFollowTransmitterRenames(t *testing.T) {
+	t.Parallel()
 	h, _, _ := matrix(t)
 	h.ctrl.Rename(h.ctx, txLectern, "Presentation Laptop")
 	if got := options(sourceConfig(h)); !reflect.DeepEqual(got, []string{"Presentation Laptop", "Stage Camera"}) {
@@ -114,12 +125,12 @@ func TestSourceOptionsFollowTransmitterRenames(t *testing.T) {
 	if h.mqtt.LastPayload(mqtt.ForDevice(testutil.RxFixtureMAC).SourceState) != "Presentation Laptop" {
 		t.Fatal("state label not refreshed after rename")
 	}
-	if _, err := h.ctrl.RequestSourceChange(h.ctx, testutil.RxFixtureMAC, "Lectern PC"); err == nil {
-		t.Fatal("old label must no longer resolve")
-	}
+	_, err := h.ctrl.ChangeSource(testutil.RxFixtureMAC, "Lectern PC")
+	rejectedWith(t, err, controller.ReasonUnknownSource)
 }
 
 func TestSourceOptionsFollowNewTransmitters(t *testing.T) {
+	t.Parallel()
 	h, _, _ := matrix(t)
 	txNamed(txSpare, "192.168.1.4", "Spare Player", 5, h.net)
 	h.discover(t)
@@ -129,6 +140,7 @@ func TestSourceOptionsFollowNewTransmitters(t *testing.T) {
 }
 
 func TestDuplicateTransmitterNamesAreDisambiguated(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, harnessOptions{})
 	txNamed(txCamera, "192.168.1.2", "Camera", 1, h.net)
 	txNamed(txLectern, "192.168.1.3", "Camera", 2, h.net)
@@ -137,19 +149,18 @@ func TestDuplicateTransmitterNamesAreDisambiguated(t *testing.T) {
 	if got := options(sourceConfig(h)); !reflect.DeepEqual(got, []string{"Camera (ch 1)", "Camera (ch 2)"}) {
 		t.Fatalf("options %v", got)
 	}
-	if _, err := h.ctrl.RequestSourceChange(h.ctx, testutil.RxFixtureMAC, "Camera (ch 1)"); err != nil {
-		t.Fatal(err)
-	}
+	h.selectSource(t, testutil.RxFixtureMAC, "Camera (ch 1)")
 	if receiver.ReportedChannel() != 1 {
 		t.Fatal("not tuned")
 	}
 }
 
 func TestTransmitterChannelWriteAndSourceRefresh(t *testing.T) {
+	t.Parallel()
 	h, _, lectern := matrix(t)
-	outcome, err := h.ctrl.RequestChannelChange(h.ctx, txLectern, 7)
-	if err != nil || outcome.Status != controller.StatusMatched {
-		t.Fatalf("outcome %+v err %v", outcome, err)
+	outcome := h.change(t, txLectern, 7)
+	if outcome.Status != controller.StatusMatched {
+		t.Fatalf("outcome %+v", outcome)
 	}
 	if lectern.ReportedChannel() != 7 || h.mqtt.LastPayload(mqtt.ForDevice(txLectern).ChannelState) != "7" {
 		t.Fatal("transmitter not updated")
@@ -163,10 +174,11 @@ func TestTransmitterChannelWriteAndSourceRefresh(t *testing.T) {
 }
 
 func TestTransmitterCollisionIsWarnedButAllowed(t *testing.T) {
+	t.Parallel()
 	h, _, lectern := matrix(t)
-	outcome, err := h.ctrl.RequestChannelChange(h.ctx, txLectern, 1)
-	if err != nil || outcome.Status != controller.StatusMatched || lectern.ReportedChannel() != 1 {
-		t.Fatalf("outcome %+v err %v", outcome, err)
+	outcome := h.change(t, txLectern, 1)
+	if outcome.Status != controller.StatusMatched || lectern.ReportedChannel() != 1 {
+		t.Fatalf("outcome %+v", outcome)
 	}
 	if !h.logs.Contains("transmitter_channel_collision") {
 		t.Fatal("collision should be logged")
@@ -177,6 +189,7 @@ func TestTransmitterCollisionIsWarnedButAllowed(t *testing.T) {
 }
 
 func TestTransmitterWriteOverMQTT(t *testing.T) {
+	t.Parallel()
 	h, _, lectern := matrix(t)
 	h.mqtt.Deliver(mqtt.ForDevice(txLectern).ChannelSet, "4")
 	eventually(t, func() bool { return lectern.ReportedChannel() == 4 }, "transmitter write")
@@ -184,6 +197,7 @@ func TestTransmitterWriteOverMQTT(t *testing.T) {
 }
 
 func TestOfflineTransmitterStaysSelectable(t *testing.T) {
+	t.Parallel()
 	h, _, _ := matrix(t)
 	h.net.Remove("192.168.1.3")
 	h.ctrl.PollKnownDevices(h.ctx)

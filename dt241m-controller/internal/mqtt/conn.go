@@ -2,7 +2,14 @@
 // Home Assistant discovery payloads and routing of inbound commands.
 package mqtt
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+// ErrNotConnected is returned by Publish while the session is down; the controller
+// treats it as "will be republished on reconnect" rather than as a fault.
+var ErrNotConnected = errors.New("mqtt: not connected")
 
 // MessageHandler receives inbound publishes in arrival order.
 type MessageHandler func(topic string, payload []byte)
@@ -12,6 +19,7 @@ type Connection interface {
 	Publish(ctx context.Context, topic string, payload string, retain bool) error
 	Subscribe(ctx context.Context, topics []string) error
 	OnMessage(handler MessageHandler)
+	// OnConnect handlers run on the session goroutine after each (re)connect and must not block.
 	OnConnect(handler func())
 	Connected() bool
 	AwaitConnection(ctx context.Context) error

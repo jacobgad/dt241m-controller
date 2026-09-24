@@ -3,6 +3,7 @@ package controller_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	"github.com/jacobgad/dt241m-controller/internal/controller"
 	"github.com/jacobgad/dt241m-controller/internal/dt241m"
 	mqttpkg "github.com/jacobgad/dt241m-controller/internal/mqtt"
+	"github.com/jacobgad/dt241m-controller/internal/registry"
 	"github.com/jacobgad/dt241m-controller/internal/store"
 	"github.com/jacobgad/dt241m-controller/internal/testutil"
 )
@@ -53,7 +55,7 @@ type harnessOptions struct {
 
 func newHarness(t *testing.T, o harnessOptions) *harness {
 	t.Helper()
-	h := &harness{net: o.net, mqtt: o.mqtt, store: o.store, logs: &lockedBuffer{}, ctx: context.Background()}
+	h := &harness{net: o.net, mqtt: o.mqtt, store: o.store, logs: &lockedBuffer{}, ctx: t.Context()}
 	if h.net == nil {
 		h.net = testutil.NewNetwork()
 	}
@@ -68,16 +70,52 @@ func newHarness(t *testing.T, o harnessOptions) *harness {
 		t.Fatal(err)
 	}
 	h.ctrl = controller.New(controller.Deps{
-		Client:           dt241m.NewHTTPClient(dt241m.Options{Transport: h.net, Timeout: opts.ProbeTimeout}),
-		MQTT:             h.mqtt,
-		Store:            h.store,
-		Options:          opts,
-		Log:              slog.New(slog.NewTextHandler(h.logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
-		Origin:           mqttOrigin,
-		ReadbackAttempts: 2,
-		ReadbackDelay:    0,
+		Client:   dt241m.NewHTTPClient(dt241m.Options{Transport: h.net, Timeout: opts.ProbeTimeout}),
+		MQTT:     h.mqtt,
+		Store:    h.store,
+		Options:  opts,
+		Log:      slog.New(slog.NewTextHandler(h.logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+		Origin:   mqttOrigin,
+		Readback: controller.Readback{Attempts: 2},
 	})
 	return h
+}
+
+// change requests a channel change and waits for its outcome.
+func (h *harness) change(t *testing.T, mac string, channel int) controller.Outcome {
+	t.Helper()
+	result, err := h.ctrl.ChangeChannel(mac, channel)
+	if err != nil {
+		t.Fatalf("change %s -> %d: %v", mac, channel, err)
+	}
+	return <-result
+}
+
+// selectSource requests a source change and waits for its outcome.
+func (h *harness) selectSource(t *testing.T, mac, label string) controller.Outcome {
+	t.Helper()
+	result, err := h.ctrl.ChangeSource(mac, label)
+	if err != nil {
+		t.Fatalf("select %s -> %q: %v", mac, label, err)
+	}
+	return <-result
+}
+
+func (h *harness) adapter(t *testing.T, mac string) registry.Adapter {
+	t.Helper()
+	a, ok := h.ctrl.Adapter(mac)
+	if !ok {
+		t.Fatalf("adapter %s unknown", mac)
+	}
+	return a
+}
+
+func rejectedWith(t *testing.T, err error, reason controller.FailureReason) {
+	t.Helper()
+	var rejected *controller.RejectedError
+	if !errors.As(err, &rejected) || rejected.Reason != reason {
+		t.Fatalf("expected rejection %s, got %v", reason, err)
+	}
 }
 
 func (h *harness) discover(t *testing.T) {

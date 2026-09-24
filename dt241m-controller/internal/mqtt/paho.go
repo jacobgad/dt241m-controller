@@ -36,6 +36,9 @@ type pahoConnection struct {
 // ctx only bounds the initial setup, otherwise cancelling it would tear the session
 // down with a clean DISCONNECT and suppress the Last Will.
 func Connect(ctx context.Context, opts PahoOptions) (Connection, error) {
+	if opts.Log == nil {
+		opts.Log = slog.Default()
+	}
 	pc := &pahoConnection{log: opts.Log}
 	cfg, err := clientConfig(opts, pc)
 	if err != nil {
@@ -79,7 +82,7 @@ func clientConfig(opts PahoOptions, pc *pahoConnection) (autopaho.ClientConfig, 
 			opts.Log.Info("mqtt_connected", "host", opts.Settings.Host, "port", opts.Settings.Port)
 			pc.setConnected(true)
 			for _, h := range pc.connectHandlers() {
-				go h()
+				h()
 			}
 		},
 		OnConnectionDown: func() bool {
@@ -129,7 +132,7 @@ func (p *pahoConnection) messageHandlers() []MessageHandler {
 
 func (p *pahoConnection) Publish(ctx context.Context, topic string, payload string, retain bool) error {
 	if !p.Connected() {
-		return fmt.Errorf("mqtt not connected")
+		return ErrNotConnected
 	}
 	_, err := p.cm.Publish(ctx, &paho.Publish{Topic: topic, QoS: 1, Retain: retain, Payload: []byte(payload)})
 	return err

@@ -1,10 +1,9 @@
 package controller_test
 
 import (
-	"context"
 	"fmt"
 	"strings"
-	"sync/atomic"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,12 +18,28 @@ const (
 	rxB = "bb:bb:bb:bb:bb:bb"
 )
 
+func probeAll(t *testing.T, net *testutil.Network, concurrency int, timeout time.Duration) []controller.Hit {
+	t.Helper()
+	var mu sync.Mutex
+	var hits []controller.Hit
+	client := dt241m.NewHTTPClient(dt241m.Options{Transport: net, Timeout: timeout})
+	controller.Probe(t.Context(), client, ips14(), controller.ProbeOptions{
+		Concurrency: concurrency, Timeout: timeout,
+		OnHit: func(h controller.Hit) {
+			mu.Lock()
+			defer mu.Unlock()
+			hits = append(hits, h)
+		},
+	})
+	return hits
+}
+
 func TestProbeFindsDevicesAmongUnresponsiveAddresses(t *testing.T) {
+	t.Parallel()
 	net := testutil.NewNetwork()
 	rx(testutil.RxFixtureMAC, "192.168.1.5", net)
 	tx(testutil.TxFixtureMAC, "192.168.1.9", net)
-	client := dt241m.NewHTTPClient(dt241m.Options{Transport: net, Timeout: 100 * time.Millisecond})
-	hits := controller.Probe(context.Background(), client, ips14(), controller.ProbeOptions{Concurrency: 4, Timeout: 100 * time.Millisecond})
+	hits := probeAll(t, net, 4, 100*time.Millisecond)
 	if len(hits) != 2 {
 		t.Fatalf("hits %d", len(hits))
 	}
@@ -42,45 +57,35 @@ func ips14() []string {
 }
 
 func TestProbeContinuesPastHangingAddresses(t *testing.T) {
+	t.Parallel()
 	net := testutil.NewNetwork()
 	net.Unreachable = testutil.Hang
 	rx(testutil.RxFixtureMAC, "192.168.1.14", net)
-	client := dt241m.NewHTTPClient(dt241m.Options{Transport: net, Timeout: 30 * time.Millisecond})
-	hits := controller.Probe(context.Background(), client, ips14(), controller.ProbeOptions{Concurrency: 8, Timeout: 30 * time.Millisecond})
+	hits := probeAll(t, net, 8, 30*time.Millisecond)
 	if len(hits) != 1 || hits[0].IP != "192.168.1.14" {
 		t.Fatalf("hits %+v", hits)
 	}
 }
 
 func TestProbeRespectsConcurrencyLimit(t *testing.T) {
+	t.Parallel()
 	net := testutil.NewNetwork()
 	net.Unreachable = testutil.Hang
-	client := dt241m.NewHTTPClient(dt241m.Options{Transport: net, Timeout: 20 * time.Millisecond})
-	var peak atomic.Int64
-	controller.Probe(context.Background(), client, ips14(), controller.ProbeOptions{
-		Concurrency: 3, Timeout: 20 * time.Millisecond,
-		OnProbeStart: func(_ string, active int) {
-			for {
-				current := peak.Load()
-				if int64(active) <= current || peak.CompareAndSwap(current, int64(active)) {
-					return
-				}
-			}
-		},
-	})
-	if peak.Load() != 3 {
-		t.Fatalf("peak concurrency %d", peak.Load())
+	probeAll(t, net, 3, 20*time.Millisecond)
+	if net.MaxInFlight() != 3 {
+		t.Fatalf("peak concurrency %d", net.MaxInFlight())
 	}
 }
 
 func TestDiscoveryRegistersClassifiesAndPublishes(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, harnessOptions{})
 	rx(testutil.RxFixtureMAC, "192.168.1.5", h.net)
 	tx(testutil.TxFixtureMAC, "192.168.1.9", h.net)
 	h.discover(t)
 
-	r, _ := h.ctrl.Registry.Lookup(testutil.RxFixtureMAC)
-	x, _ := h.ctrl.Registry.Lookup(testutil.TxFixtureMAC)
+	r := h.adapter(t, testutil.RxFixtureMAC)
+	x := h.adapter(t, testutil.TxFixtureMAC)
 	if r.Role != dt241m.RoleReceiver || r.IP != "192.168.1.5" || x.Role != dt241m.RoleTransmitter || x.IP != "192.168.1.9" {
 		t.Fatalf("rx %+v tx %+v", r, x)
 	}
@@ -100,15 +105,16 @@ func TestDiscoveryRegistersClassifiesAndPublishes(t *testing.T) {
 }
 
 func TestSameMACAtNewIPUpdatesExistingDevice(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, harnessOptions{})
 	rx(testutil.RxFixtureMAC, "192.168.1.5", h.net)
 	h.discover(t)
 	h.net.Move("192.168.1.5", "192.168.1.11")
 	h.discover(t)
-	if len(h.ctrl.Registry.All()) != 1 {
+	if len(h.ctrl.Adapters()) != 1 {
 		t.Fatal("duplicate adapter")
 	}
-	a, _ := h.ctrl.Registry.Lookup(testutil.RxFixtureMAC)
+	a := h.adapter(t, testutil.RxFixtureMAC)
 	if a.IP != "192.168.1.11" || h.mqtt.LastPayload(mqtt.ForDevice(testutil.RxFixtureMAC).IPState) != "192.168.1.11" {
 		t.Fatalf("ip not updated: %+v", a)
 	}
@@ -118,6 +124,7 @@ func TestSameMACAtNewIPUpdatesExistingDevice(t *testing.T) {
 }
 
 func TestDifferentMACAtOldIPDoesNotMutateIdentity(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, harnessOptions{})
 	rx(rxA, "192.168.1.5", h.net)
 	h.discover(t)
@@ -125,9 +132,9 @@ func TestDifferentMACAtOldIPDoesNotMutateIdentity(t *testing.T) {
 	rx(rxB, "192.168.1.5", h.net, func(o *testutil.DeviceOptions) { o.Overrides = map[string]any{"dev_name": "ER02_B"} })
 	h.discover(t)
 
-	a, _ := h.ctrl.Registry.Lookup(rxA)
-	b, _ := h.ctrl.Registry.Lookup(rxB)
-	if a.ID != "dt241m_aaaaaaaaaaaa" || *a.ReportedName != "ER02_286CD6D8" || a.Online {
+	a := h.adapter(t, rxA)
+	b := h.adapter(t, rxB)
+	if a.ID != "dt241m_aaaaaaaaaaaa" || a.ReportedName != "ER02_286CD6D8" || a.Online {
 		t.Fatalf("a mutated: %+v", a)
 	}
 	if b.ID != "dt241m_bbbbbbbbbbbb" || b.IP != "192.168.1.5" || !b.Online {
@@ -139,6 +146,7 @@ func TestDifferentMACAtOldIPDoesNotMutateIdentity(t *testing.T) {
 }
 
 func TestRepeatedDiscoveryDoesNotDuplicateHADevice(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, harnessOptions{})
 	rx(testutil.RxFixtureMAC, "192.168.1.5", h.net)
 	for i := 0; i < 3; i++ {
@@ -175,6 +183,7 @@ func TestRepeatedDiscoveryDoesNotDuplicateHADevice(t *testing.T) {
 }
 
 func TestNoOverlappingDiscovery(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, harnessOptions{})
 	h.net.Unreachable = testutil.Hang
 	done := make(chan struct{}, 2)
@@ -189,6 +198,7 @@ func TestNoOverlappingDiscovery(t *testing.T) {
 }
 
 func TestOnlyProbesConfiguredRange(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, harnessOptions{})
 	h.discover(t)
 	probed := map[string]bool{}
@@ -201,13 +211,14 @@ func TestOnlyProbesConfiguredRange(t *testing.T) {
 }
 
 func TestPollingPublishesPhysicalChannelChangeWithoutWriting(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, harnessOptions{})
 	d := rx(testutil.RxFixtureMAC, "192.168.1.5", h.net)
 	h.discover(t)
 	d.SetReported(6)
 	d.FrontPanel = 6
 	h.ctrl.PollKnownDevices(h.ctx)
-	a, _ := h.ctrl.Registry.Lookup(testutil.RxFixtureMAC)
+	a := h.adapter(t, testutil.RxFixtureMAC)
 	if *a.Channel != 6 || h.mqtt.LastPayload(mqtt.ForDevice(testutil.RxFixtureMAC).ChannelState) != "6" {
 		t.Fatal("channel not observed")
 	}
@@ -217,25 +228,25 @@ func TestPollingPublishesPhysicalChannelChangeWithoutWriting(t *testing.T) {
 }
 
 func TestPollingNeverReappliesChannels(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, harnessOptions{})
 	d := rx(testutil.RxFixtureMAC, "192.168.1.5", h.net)
 	h.discover(t)
-	if _, err := h.ctrl.RequestChannelChange(h.ctx, testutil.RxFixtureMAC, 4); err != nil {
-		t.Fatal(err)
-	}
+	h.change(t, testutil.RxFixtureMAC, 4)
 	d.SetReported(1)
 	h.ctrl.PollKnownDevices(h.ctx)
 	h.ctrl.PollKnownDevices(h.ctx)
 	if len(h.net.WritesTo("192.168.1.5")) != 1 {
 		t.Fatal("poll reapplied channel")
 	}
-	a, _ := h.ctrl.Registry.Lookup(testutil.RxFixtureMAC)
+	a := h.adapter(t, testutil.RxFixtureMAC)
 	if *a.Channel != 1 {
 		t.Fatal("registry should track hardware")
 	}
 }
 
 func TestVanishedDeviceIsRediscoveredAtNewIP(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, harnessOptions{})
 	rx(testutil.RxFixtureMAC, "192.168.1.5", h.net)
 	h.discover(t)
@@ -251,19 +262,20 @@ func TestVanishedDeviceIsRediscoveredAtNewIP(t *testing.T) {
 	if h.ctrl.DiscoveryRunCount() != runs+1 {
 		t.Fatal("rediscovery not triggered")
 	}
-	a, _ := h.ctrl.Registry.Lookup(testutil.RxFixtureMAC)
-	if a.IP != "192.168.1.12" || len(h.ctrl.Registry.All()) != 1 {
+	a := h.adapter(t, testutil.RxFixtureMAC)
+	if a.IP != "192.168.1.12" || len(h.ctrl.Adapters()) != 1 {
 		t.Fatalf("adapter %+v", a)
 	}
 }
 
 func TestUnfoundDeviceStaysOffline(t *testing.T) {
+	t.Parallel()
 	h := newHarness(t, harnessOptions{})
 	rx(testutil.RxFixtureMAC, "192.168.1.5", h.net)
 	h.discover(t)
 	h.net.Remove("192.168.1.5")
 	h.ctrl.PollKnownDevices(h.ctx)
-	a, _ := h.ctrl.Registry.Lookup(testutil.RxFixtureMAC)
+	a := h.adapter(t, testutil.RxFixtureMAC)
 	if a.Online || h.mqtt.LastPayload(mqtt.ForDevice(testutil.RxFixtureMAC).Availability) != "offline" {
 		t.Fatal("should be offline")
 	}

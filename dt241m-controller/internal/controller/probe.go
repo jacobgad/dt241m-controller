@@ -14,32 +14,20 @@ type Hit struct {
 	Info *dt241m.DeviceInfo
 }
 
-// ProbeOptions bounds a sweep and exposes hooks for observation.
+// ProbeOptions bounds a sweep.
 type ProbeOptions struct {
-	Concurrency  int
-	Timeout      time.Duration
-	OnHit        func(Hit)
-	OnProbeStart func(ip string, active int)
+	Concurrency int
+	Timeout     time.Duration
+	OnHit       func(Hit)
 }
 
-// Probe sends get_device_info_proav to every address with bounded concurrency.
-// Addresses that do not answer are not errors; they are simply absent from the result.
-func Probe(ctx context.Context, client dt241m.Client, ips []string, opts ProbeOptions) []Hit {
-	var (
-		mu     sync.Mutex
-		hits   []Hit
-		active int
-		wg     sync.WaitGroup
-		queue  = make(chan string)
-	)
-	workers := opts.Concurrency
-	if workers < 1 {
-		workers = 1
-	}
-	if workers > len(ips) {
-		workers = len(ips)
-	}
-	for i := 0; i < workers; i++ {
+// Probe sends get_device_info_proav to every address with bounded concurrency and
+// reports each answer through OnHit. Addresses that do not answer are simply skipped.
+func Probe(ctx context.Context, client dt241m.Client, ips []string, opts ProbeOptions) {
+	workers := max(1, min(opts.Concurrency, len(ips)))
+	queue := make(chan string)
+	var wg sync.WaitGroup
+	for range workers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -47,28 +35,12 @@ func Probe(ctx context.Context, client dt241m.Client, ips []string, opts ProbeOp
 				if ctx.Err() != nil {
 					continue
 				}
-				mu.Lock()
-				active++
-				current := active
-				mu.Unlock()
-				if opts.OnProbeStart != nil {
-					opts.OnProbeStart(ip, current)
-				}
 				probeCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
 				info, err := client.GetDeviceInfo(probeCtx, ip)
 				cancel()
-				if err == nil {
-					hit := Hit{IP: ip, Info: info}
-					mu.Lock()
-					hits = append(hits, hit)
-					mu.Unlock()
-					if opts.OnHit != nil {
-						opts.OnHit(hit)
-					}
+				if err == nil && opts.OnHit != nil {
+					opts.OnHit(Hit{IP: ip, Info: info})
 				}
-				mu.Lock()
-				active--
-				mu.Unlock()
 			}
 		}()
 	}
@@ -80,5 +52,4 @@ func Probe(ctx context.Context, client dt241m.Client, ips []string, opts ProbeOp
 	}
 	close(queue)
 	wg.Wait()
-	return hits
 }

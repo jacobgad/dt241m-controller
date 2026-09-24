@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/jacobgad/dt241m-controller/internal/registry"
+	"github.com/jacobgad/dt241m-controller/internal/store"
 )
 
 type MemoryStore struct {
@@ -42,9 +43,11 @@ func (m *MemoryStore) Save(_ context.Context, a registry.Adapter) error {
 func (m *MemoryStore) SetName(_ context.Context, mac string, name *string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if a, ok := m.records[mac]; ok {
-		a.Name = name
-		m.records[mac] = a
+	a, ok := m.records[mac]
+	if !ok {
+		return store.ErrNotFound
 	}
+	a.Name = name
+	m.records[mac] = a
 	return nil
 }

@@ -189,6 +189,8 @@ type Network struct {
 	mu          sync.Mutex
 	devices     map[string]*Device
 	requests    []Request
+	inFlight    int
+	maxInFlight int
 	Unreachable UnreachableMode
 }
 
@@ -266,7 +268,23 @@ func StatusResponse(status int, body string) *http.Response {
 	return &http.Response{StatusCode: status, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}
 }
 
+// MaxInFlight is the highest number of simultaneous requests seen.
+func (n *Network) MaxInFlight() int {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.maxInFlight
+}
+
 func (n *Network) RoundTrip(req *http.Request) (*http.Response, error) {
+	n.mu.Lock()
+	n.inFlight++
+	n.maxInFlight = max(n.maxInFlight, n.inFlight)
+	n.mu.Unlock()
+	defer func() {
+		n.mu.Lock()
+		n.inFlight--
+		n.mu.Unlock()
+	}()
 	recorded, err := record(req)
 	if err != nil {
 		return nil, err

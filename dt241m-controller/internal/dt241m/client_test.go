@@ -37,6 +37,7 @@ func expectCode(t *testing.T, err error, code dt241m.Code) {
 }
 
 func TestRequestShape(t *testing.T) {
+	t.Parallel()
 	net := network()
 	if _, err := client(net, time.Second).GetDeviceInfo(context.Background(), rxIP); err != nil {
 		t.Fatal(err)
@@ -70,6 +71,7 @@ func TestRequestShape(t *testing.T) {
 }
 
 func TestSetChannelRequest(t *testing.T) {
+	t.Parallel()
 	net := network()
 	if err := client(net, time.Second).SetChannel(context.Background(), rxIP, 2); err != nil {
 		t.Fatal(err)
@@ -81,6 +83,7 @@ func TestSetChannelRequest(t *testing.T) {
 }
 
 func TestRPCIDStaysOne(t *testing.T) {
+	t.Parallel()
 	net := network()
 	c := client(net, time.Second)
 	ctx := context.Background()
@@ -95,6 +98,7 @@ func TestRPCIDStaysOne(t *testing.T) {
 }
 
 func TestRejectsNonIPv4WithoutSending(t *testing.T) {
+	t.Parallel()
 	net := network()
 	c := client(net, time.Second)
 	for _, host := range []string{"example.com", "http://10.0.0.1", "::1"} {
@@ -107,11 +111,12 @@ func TestRejectsNonIPv4WithoutSending(t *testing.T) {
 }
 
 func TestParsesCapturedFixtures(t *testing.T) {
+	t.Parallel()
 	var tx dt241m.DeviceInfo
 	if err := json.Unmarshal(mustResult("tx-info-initial-channel-3"), &tx); err != nil {
 		t.Fatal(err)
 	}
-	if tx.LanMAC != "FC:19:28:6C:D2:91" || tx.ChannelID != 3 || *tx.ProductName != "ProAVTx ET01" || *tx.Version != "1.13471.133" {
+	if tx.LanMAC != "FC:19:28:6C:D2:91" || tx.ChannelID != 3 || tx.ProductName != "ProAVTx ET01" || tx.Version != "1.13471.133" {
 		t.Fatalf("tx %+v", tx)
 	}
 	if string(tx.Raw["wifi_mac_addr"]) != "null" || string(tx.Raw["resolution"]) != `"1920x1080 @60Hz RGB"` {
@@ -131,12 +136,13 @@ func TestParsesCapturedFixtures(t *testing.T) {
 	if err := json.Unmarshal(mustResult("rx-info-initial-channel-2"), &rx); err != nil {
 		t.Fatal(err)
 	}
-	if rx.LanMAC != "FC:19:28:6C:D6:D8" || rx.ChannelID != 2 || *rx.DevName != "ER02_286CD6D8" || string(rx.Raw["resolution"]) != `"1920x1080_60P"` {
+	if rx.LanMAC != "FC:19:28:6C:D6:D8" || rx.ChannelID != 2 || rx.DevName != "ER02_286CD6D8" || string(rx.Raw["resolution"]) != `"1920x1080_60P"` {
 		t.Fatalf("rx %+v", rx)
 	}
 }
 
 func TestPreservesUnknownFields(t *testing.T) {
+	t.Parallel()
 	result := testutil.FixtureResult("rx-info-initial-channel-2")
 	result["future_field"] = "keep me"
 	data, _ := json.Marshal(result)
@@ -150,6 +156,7 @@ func TestPreservesUnknownFields(t *testing.T) {
 }
 
 func TestAcceptsCapturedAcknowledgements(t *testing.T) {
+	t.Parallel()
 	for _, fixture := range []string{"tx-set-channel-4-success", "rx-set-channel-1-success"} {
 		net := testutil.NewNetwork()
 		body := testutil.FixtureText(fixture)
@@ -169,6 +176,7 @@ func TestAcceptsCapturedAcknowledgements(t *testing.T) {
 }
 
 func TestReturnsFixtureUnchanged(t *testing.T) {
+	t.Parallel()
 	net := testutil.NewNetwork()
 	net.Place(rxIP, testutil.NewDevice(testutil.DeviceOptions{
 		MAC: testutil.RxFixtureMAC, Fixture: "rx-info-initial-channel-2",
@@ -199,6 +207,7 @@ func respondingWith(resp *http.Response) *dt241m.HTTPClient {
 }
 
 func TestSyntheticFailures(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	cases := []struct {
 		name string
@@ -235,6 +244,7 @@ func write(c *dt241m.HTTPClient) error {
 }
 
 func TestTimeoutIsDistinct(t *testing.T) {
+	t.Parallel()
 	net := testutil.NewNetwork()
 	net.Place(rxIP, testutil.NewDevice(testutil.DeviceOptions{MAC: testutil.RxFixtureMAC, Fixture: "rx-info-initial-channel-2", ReadHangs: true}))
 	_, err := client(net, 20*time.Millisecond).GetDeviceInfo(context.Background(), rxIP)
@@ -242,11 +252,13 @@ func TestTimeoutIsDistinct(t *testing.T) {
 }
 
 func TestRefusedConnectionIsTransport(t *testing.T) {
+	t.Parallel()
 	_, err := client(testutil.NewNetwork(), time.Second).GetDeviceInfo(context.Background(), "10.0.0.99")
 	expectCode(t, err, dt241m.CodeTransport)
 }
 
 func TestChannelValidation(t *testing.T) {
+	t.Parallel()
 	for _, ok := range []int{0, 1, 2, 255} {
 		if !dt241m.ValidChannel(ok) {
 			t.Fatalf("%d should be valid", ok)
@@ -277,22 +289,22 @@ func TestChannelValidation(t *testing.T) {
 }
 
 func TestClassify(t *testing.T) {
+	t.Parallel()
 	var tx, rx dt241m.DeviceInfo
 	_ = json.Unmarshal(mustResult("tx-info-initial-channel-3"), &tx)
 	_ = json.Unmarshal(mustResult("rx-info-initial-channel-2"), &rx)
 	if dt241m.Classify(&tx) != dt241m.RoleTransmitter || dt241m.Classify(&rx) != dt241m.RoleReceiver {
 		t.Fatal("fixture classification wrong")
 	}
-	str := func(s string) *string { return &s }
 	cases := map[string]struct {
 		info dt241m.DeviceInfo
 		want dt241m.Role
 	}{
 		"missing":        {dt241m.DeviceInfo{}, dt241m.RoleUnknown},
-		"conflicting":    {dt241m.DeviceInfo{ProductName: str("ProAVTx ET01"), Model: str("am_8270_proavrx-eth_er01-pway-dt241")}, dt241m.RoleUnknown},
-		"unrelated":      {dt241m.DeviceInfo{ProductName: str("SomethingElse"), Model: str("generic")}, dt241m.RoleUnknown},
-		"dev name alone": {dt241m.DeviceInfo{DevName: str("ER02_286CD6D8")}, dt241m.RoleUnknown},
-		"model only":     {dt241m.DeviceInfo{Model: str("am_8270_proavrx-eth_er01-pway-dt241")}, dt241m.RoleReceiver},
+		"conflicting":    {dt241m.DeviceInfo{ProductName: "ProAVTx ET01", Model: "am_8270_proavrx-eth_er01-pway-dt241"}, dt241m.RoleUnknown},
+		"unrelated":      {dt241m.DeviceInfo{ProductName: "SomethingElse", Model: "generic"}, dt241m.RoleUnknown},
+		"dev name alone": {dt241m.DeviceInfo{DevName: "ER02_286CD6D8"}, dt241m.RoleUnknown},
+		"model only":     {dt241m.DeviceInfo{Model: "am_8270_proavrx-eth_er01-pway-dt241"}, dt241m.RoleReceiver},
 	}
 	for name, tc := range cases {
 		if got := dt241m.Classify(&tc.info); got != tc.want {

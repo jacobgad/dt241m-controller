@@ -32,6 +32,7 @@ INSERT INTO adapters VALUES ('aa:aa:aa:aa:aa:aa', 'Main Projector', 'ER02_AAAA',
 `
 
 func TestOpenAdoptsDatabaseCreatedByVersion1(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "v1.sqlite")
 	raw, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -52,7 +53,7 @@ func TestOpenAdoptsDatabaseCreatedByVersion1(t *testing.T) {
 		t.Fatalf("rows %v err %v", rows, err)
 	}
 	a := rows[0]
-	if a.MAC != "aa:aa:aa:aa:aa:aa" || *a.Name != "Main Projector" || *a.ReportedName != "ER02_AAAA" || a.Role != "receiver" ||
+	if a.MAC != "aa:aa:aa:aa:aa:aa" || *a.Name != "Main Projector" || a.ReportedName != "ER02_AAAA" || a.Role != "receiver" ||
 		a.IP != "192.168.1.20" || *a.Channel != 2 || !a.FirstSeenAt.Equal(time.UnixMilli(1700000000000)) || !a.LastSeenAt.Equal(time.UnixMilli(1700000060000)) {
 		t.Fatalf("adapter %+v", a)
 	}
@@ -66,13 +67,14 @@ func TestOpenAdoptsDatabaseCreatedByVersion1(t *testing.T) {
 }
 
 func TestSaveDoesNotOverwriteName(t *testing.T) {
+	t.Parallel()
 	s, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "name.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s.Close()
 	now := time.Now()
-	a := registry.Adapter{MAC: "aa:aa:aa:aa:aa:aa", ID: "dt241m_aaaaaaaaaaaa", Role: "receiver", IP: "10.0.0.1", FirstSeenAt: now, LastSeenAt: &now}
+	a := registry.Adapter{MAC: "aa:aa:aa:aa:aa:aa", ID: "dt241m_aaaaaaaaaaaa", Role: "receiver", IP: "10.0.0.1", FirstSeenAt: now, LastSeenAt: now}
 	if err := s.Save(context.Background(), a); err != nil {
 		t.Fatal(err)
 	}

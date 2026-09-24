@@ -90,10 +90,10 @@ type Capability struct {
 // DeviceInfo is the result of get_device_info_proav. Raw retains every field the
 // firmware sent so that future firmware keys survive a round trip through this type.
 type DeviceInfo struct {
-	DevName     *string
-	ProductName *string
-	Model       *string
-	Version     *string
+	DevName     string
+	ProductName string
+	Model       string
+	Version     string
 	LanMAC      string
 	ChannelID   int
 	Capability  map[string]Capability
@@ -106,8 +106,8 @@ func (d *DeviceInfo) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
-	var mac string
-	if err := optionalString(raw, "lan_mac_addr", &mac); err != nil || mac == "" {
+	mac := optionalString(raw, "lan_mac_addr")
+	if mac == "" {
 		return fmt.Errorf("lan_mac_addr missing")
 	}
 	channelRaw, ok := raw["channel_id"]
@@ -125,46 +125,30 @@ func (d *DeviceInfo) UnmarshalJSON(data []byte) error {
 	d.Raw = raw
 	d.LanMAC = mac
 	d.ChannelID = int(channelInt)
-	d.DevName = stringPtr(raw, "dev_name")
-	d.ProductName = stringPtr(raw, "product_name")
-	d.Model = stringPtr(raw, "model")
-	d.Version = stringPtr(raw, "version")
+	d.DevName = optionalString(raw, "dev_name")
+	d.ProductName = optionalString(raw, "product_name")
+	d.Model = optionalString(raw, "model")
+	d.Version = optionalString(raw, "version")
 	if capRaw, ok := raw["capability"]; ok {
 		_ = json.Unmarshal(capRaw, &d.Capability)
 	}
 	return nil
 }
 
-func optionalString(raw map[string]json.RawMessage, key string, out *string) error {
-	value, ok := raw[key]
-	if !ok || string(value) == "null" {
-		return nil
-	}
-	return json.Unmarshal(value, out)
-}
-
-func stringPtr(raw map[string]json.RawMessage, key string) *string {
+// optionalString reads a string field, treating absent, null and non-string values as "".
+func optionalString(raw map[string]json.RawMessage, key string) string {
 	var s string
-	if err := optionalString(raw, key, &s); err != nil {
-		return nil
+	if value, ok := raw[key]; ok {
+		_ = json.Unmarshal(value, &s)
 	}
-	if value, ok := raw[key]; !ok || string(value) == "null" {
-		return nil
-	}
-	return &s
+	return s
 }
 
 // Classify derives the role from product_name and model. dev_name is deliberately
 // ignored: the captured receiver reports ER02_… while its product string says ER01.
 func Classify(info *DeviceInfo) Role {
-	var haystack []string
-	for _, s := range []*string{info.ProductName, info.Model} {
-		if s != nil {
-			haystack = append(haystack, strings.ToLower(*s))
-		}
-	}
 	looksTx, looksRx := false, false
-	for _, s := range haystack {
+	for _, s := range []string{strings.ToLower(info.ProductName), strings.ToLower(info.Model)} {
 		looksTx = looksTx || strings.Contains(s, "proavtx")
 		looksRx = looksRx || strings.Contains(s, "proavrx")
 	}
