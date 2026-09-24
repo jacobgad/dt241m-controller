@@ -1,0 +1,33 @@
+{
+  "name": "dt241m-controller",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Home Assistant MQTT bridge for PWAY DT241M HDMI-over-IP transmitters and receivers",
+  "type": "module",
+  "main": "dist/index.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "better-sqlite3": "12.11.1",
+    "drizzle-orm": "^0.45.3",
+    "mqtt": "^5.14.1",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^24.7.0",
+    "drizzle-kit": "^0.31.11",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

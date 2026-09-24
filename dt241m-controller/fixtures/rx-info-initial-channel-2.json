@@ -1,0 +1,67 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "dev_name": "ER02_286CD6D8",
+    "ssid": "ER02_286CD6D8",
+    "softap_psk": "",
+    "product_name": "ProAVRx ER01",
+    "model": "am_8270_proavrx-eth_er01-pway-dt241",
+    "version": "1.13471.133",
+    "linkInNum": 0,
+    "wifi_mac_addr": null,
+    "lan_mac_addr": "FC:19:28:6C:D6:D8",
+    "wifi_ip_addr": null,
+    "lan_ip_addr": "192.168.30.20",
+    "channel_id": 2,
+    "swsp_mode": "SW",
+    "display_mode": 0,
+    "hdmi": 1,
+    "hdmi_video": 1,
+    "dhcp": "disabled",
+    "wifi_bandwidth": 80,
+    "resolution": "1920x1080_60P",
+    "capability": {
+      "airview": {
+        "enable": true
+      },
+      "set_wifi_bandwidth": {
+        "enable": false
+      },
+      "set_hdmi_video": {
+        "enable": true
+      },
+      "set_bg_imageByUrl": {
+        "enable": true
+      },
+      "set_assigned_name": {
+        "enable": true
+      },
+      "set_transfer_edid": {
+        "enable": true
+      },
+      "set_display_mode": {
+        "enable": true
+      },
+      "set_channel_id": {
+        "enable": true,
+        "range": "[0,255]"
+      },
+      "identify": {
+        "enable": false
+      },
+      "emergency": {
+        "enable": true
+      },
+      "set_auto_dhcp_service": {
+        "enable": false
+      },
+      "OtaDownload": {
+        "enable": true
+      },
+      "OtaDownloadByUrl": {
+        "enable": true
+      }
+    }
+  }
+}
