@@ -20,7 +20,10 @@ import (
 
 var version = "dev"
 
-const supportURL = "https://github.com/jacobgad/dt241m-controller"
+const (
+	supportURL      = "https://github.com/jacobgad/dt241m-controller"
+	shutdownTimeout = 10 * time.Second
+)
 
 func main() {
 	if err := run(); err != nil {
@@ -70,18 +73,22 @@ func run() error {
 		Log:     log,
 		Origin:  mqtt.Origin{Version: version, SupportURL: supportURL},
 	})
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 	if err := ctrl.Start(ctx); err != nil {
 		log.Error("startup_failed", "error", err.Error())
-		ctrl.Stop(shutdownCtx)
+		shutdown(ctrl)
 		return err
 	}
 
 	<-ctx.Done()
 	log.Info("shutdown_requested")
-	ctrl.Stop(shutdownCtx)
+	shutdown(ctrl)
 	return nil
+}
+
+func shutdown(ctrl *controller.Controller) {
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	ctrl.Stop(ctx)
 }
 
 func newLogger(level slog.Level) *slog.Logger {
