@@ -214,10 +214,6 @@ func TestShutdownPublishesOfflineAndRefusesCommands(t *testing.T) {
 	rejectedWith(t, err, controller.ReasonShuttingDown)
 }
 
-// TestFullSweepNeverOverwritesNewerAvailability reproduces the production upgrade fault:
-// Home Assistant's birth message (or a reconnect) starts a full republish from a snapshot
-// in which persisted adapters are still offline, while the startup probe is bringing
-// them online. Whatever the interleaving, the retained availability must end up online.
 func TestFullSweepNeverOverwritesNewerAvailability(t *testing.T) {
 	t.Parallel()
 	store := testutil.NewMemoryStore()

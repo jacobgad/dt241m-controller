@@ -10,6 +10,7 @@ import (
 	"runtime"
 )
 
+// MACs of the two captured units.
 const (
 	TxFixtureMAC = "fc:19:28:6c:d2:91"
 	RxFixtureMAC = "fc:19:28:6c:d6:d8"
@@ -20,6 +21,7 @@ func fixturesDir() string {
 	return filepath.Join(filepath.Dir(file), "..", "..", "fixtures")
 }
 
+// FixtureText returns a captured response verbatim.
 func FixtureText(name string) string {
 	data, err := os.ReadFile(filepath.Join(fixturesDir(), name+".json"))
 	if err != nil {
@@ -28,6 +30,7 @@ func FixtureText(name string) string {
 	return string(data)
 }
 
+// FixtureResult returns the decoded result object of a captured response.
 func FixtureResult(name string) map[string]any {
 	var envelope struct {
 		Result map[string]any `json:"result"`

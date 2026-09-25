@@ -7,8 +7,11 @@ import (
 	"sync"
 )
 
+// Responder overrides a device's reply; returning nil falls back to the default behaviour.
 type Responder func(rpc *RPC, device *Device) *http.Response
 
+// Device is a simulated DT241M unit. Reported, Video and FrontPanel are kept separate so
+// tests can model the observed quirk of a stale panel after a successful HTTP switch.
 type Device struct {
 	MAC             string
 	Template        map[string]any
@@ -24,6 +27,7 @@ type Device struct {
 	mu              sync.Mutex
 }
 
+// DeviceOptions configures NewDevice.
 type DeviceOptions struct {
 	MAC             string
 	Fixture         string
@@ -37,6 +41,7 @@ type DeviceOptions struct {
 	Responder       Responder
 }
 
+// NewDevice builds a device from a captured fixture plus overrides.
 func NewDevice(opts DeviceOptions) *Device {
 	template := FixtureResult(opts.Fixture)
 	for k, v := range opts.Overrides {

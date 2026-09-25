@@ -13,8 +13,6 @@ import (
 
 var updateGolden = flag.Bool("update", false, "rewrite golden discovery payloads")
 
-// TestDiscoveryPayloadsMatchGolden pins every Home Assistant discovery config byte-for-byte
-// (after key sorting) so refactors of the payload builders cannot drift silently.
 func TestDiscoveryPayloadsMatchGolden(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, harnessOptions{})

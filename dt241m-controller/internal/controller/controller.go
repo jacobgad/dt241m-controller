@@ -1,10 +1,6 @@
 // Package controller orchestrates the add-on: discovery and polling of DT241M units,
 // the per-device write queue with identity verification, and publication of the
 // resulting state to Home Assistant over MQTT.
-//
-// The package is split by responsibility: controller.go owns the lifecycle and wiring,
-// discovery.go everything that reads devices, write.go everything that changes them,
-// and publish.go the translation of registry state into MQTT.
 package controller
 
 import (
@@ -107,7 +103,6 @@ func New(deps Deps) *Controller {
 	return c
 }
 
-// background runs fn under the controller's lifetime and lets Stop wait for it.
 func (c *Controller) background(fn func(context.Context)) {
 	c.inflight.Add(1)
 	go func() {

@@ -1,4 +1,4 @@
-// Command dt241m-controller is the Home Assistant add-on binary: it bridges PWAY DT241M
+// Command dt241m-controller is the Home Assistant add-on binary: it bridges DT241M
 // HDMI-over-IP units to MQTT so they appear as native Home Assistant devices.
 package main
 

@@ -8,7 +8,7 @@ import (
 	"github.com/jacobgad/dt241m-controller/internal/dt241m"
 )
 
-// forEach calls fn for every item with at most limit goroutines, stopping early once ctx ends.
+// forEach stops feeding items once ctx ends; items already taken by a worker still run.
 func forEach[T any](ctx context.Context, items []T, limit int, fn func(T)) {
 	workers := max(1, min(limit, len(items)))
 	queue := make(chan T)

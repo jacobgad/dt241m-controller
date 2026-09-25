@@ -16,14 +16,13 @@ import (
 
 const publishTimeout = 5 * time.Second
 
-// publisher is the Home Assistant presenter. It decides what an observation means for
-// the broker, turns registry state into retained messages, and remembers what it last
-// sent so unchanged values are not repeated.
+// publisher is the Home Assistant presenter: it turns registry state into retained MQTT
+// messages and remembers what it last sent so unchanged values are not repeated.
 //
-// Every entry point holds mu for its whole duration. Retained topics keep only the last
-// message, so two publications of the same topic must reach the broker in the order the
-// registry changed; a full sweep (everything) must therefore never interleave with a
-// per-adapter update taken from a newer snapshot, and vice versa.
+// Every entry point holds mu for its whole duration so a full sweep can never interleave
+// with a per-adapter update; retained topics keep only the last message, so that ordering
+// matters more than throughput. Two per-adapter updates for the same MAC are not ordered
+// against each other.
 type publisher struct {
 	conn     mqtt.Connection
 	registry *registry.Registry
@@ -35,9 +34,6 @@ type publisher struct {
 	lastSources registry.SourceTable
 }
 
-// observation publishes whatever an observation changed: discovery for new or re-described
-// adapters, availability on transitions, state when values moved, and the receivers'
-// Source lists whenever a transmitter was involved.
 func (p *publisher) observation(ctx context.Context, obs registry.Observation) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -63,8 +59,6 @@ func (p *publisher) observation(ctx context.Context, obs registry.Observation) {
 	}
 }
 
-// renamed republishes what a user-set name touches: the name state, the device name in
-// every discovery config, and the receivers' Source lists if a transmitter was renamed.
 func (p *publisher) renamed(ctx context.Context, a registry.Adapter) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -75,7 +69,6 @@ func (p *publisher) renamed(ctx context.Context, a registry.Adapter) {
 	}
 }
 
-// offline publishes an adapter that stopped answering.
 func (p *publisher) offline(ctx context.Context, a registry.Adapter) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -90,7 +83,6 @@ func (p *publisher) rejectedName(ctx context.Context, a registry.Adapter) {
 	p.name(ctx, a)
 }
 
-// everything re-sends the complete picture; used on connect and on Home Assistant's birth.
 func (p *publisher) everything(ctx context.Context) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -158,7 +150,6 @@ func (p *publisher) stateWith(ctx context.Context, a registry.Adapter, table reg
 	}
 }
 
-// counts publishes the Known/Online sensors when they changed since last time.
 func (p *publisher) counts(ctx context.Context) {
 	counts := p.registry.Counts()
 	unchanged := p.lastCounts != nil && *p.lastCounts == counts
@@ -168,7 +159,6 @@ func (p *publisher) counts(ctx context.Context) {
 	}
 }
 
-// scanFinished publishes counts after a sweep, which may have changed nothing.
 func (p *publisher) scanFinished(ctx context.Context) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

@@ -2,7 +2,7 @@
 
 ## 2.1.2
 
-- Fix devices showing as unavailable (Channel empty, Source unavailable) after an add-on start or Home Assistant restart. A full republish running alongside the startup probe could leave a stale `offline` as the retained availability; publishes are now strictly ordered. Publishing also no longer depends on a connection flag that could lag the broker session, which had silently dropped the first republish.
+- Fix devices showing as unavailable (Channel empty, Source unavailable) after an add-on start or Home Assistant restart. A full republish running alongside the startup probe could leave a stale `offline` as the retained availability; a full republish can no longer interleave with per-device updates. Publishing also no longer depends on a connection flag that could lag the broker session, which had silently dropped the first republish.
 
 ## 2.1.1
 

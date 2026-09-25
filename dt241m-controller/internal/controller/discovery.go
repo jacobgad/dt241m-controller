@@ -113,8 +113,6 @@ const (
 	observeUnreachable observeOutcome = "unreachable"
 )
 
-// observeAt queries ip and records whatever answers. The outcome says whether it was the
-// device we expected, a different one, or nothing at all.
 func (c *Controller) observeAt(ctx context.Context, ip, expectedMAC string) observeOutcome {
 	readCtx, cancel := context.WithTimeout(ctx, c.opts.ProbeTimeout)
 	info, err := c.client.GetDeviceInfo(readCtx, ip)
@@ -132,7 +130,6 @@ func (c *Controller) observeAt(ctx context.Context, ip, expectedMAC string) obse
 	return observeVerified
 }
 
-// observe records a device response, then logs, publishes and persists what changed.
 func (c *Controller) observe(ctx context.Context, ip string, info *dt241m.DeviceInfo) {
 	obs, ok := c.registry.RecordObservation(ip, info, c.now())
 	if !ok {

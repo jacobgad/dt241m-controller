@@ -145,7 +145,6 @@ var (
 	}
 )
 
-// entitiesFor lists the entities an adapter exposes in its current role.
 func entitiesFor(role dt241m.Role) []entity {
 	common := []entity{nameText, ipSensor, roleSensor}
 	switch role {

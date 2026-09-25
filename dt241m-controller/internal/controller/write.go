@@ -59,7 +59,6 @@ func writableRole(role dt241m.Role) bool {
 	return role == dt241m.RoleReceiver || role == dt241m.RoleTransmitter
 }
 
-// changeChannel is the write transaction: prove the address, write, read back, report.
 func (c *Controller) changeChannel(ctx context.Context, macAddr string, requested int) Outcome {
 	ip, ok := c.verifiedIP(ctx, macAddr)
 	if !ok {

@@ -11,6 +11,7 @@ import (
 	"sync"
 )
 
+// RPC is the decoded JSON-RPC request a device received.
 type RPC struct {
 	JSONRPC string         `json:"jsonrpc"`
 	Method  string         `json:"method"`
@@ -19,6 +20,7 @@ type RPC struct {
 	IDRaw   json.RawMessage
 }
 
+// Request is one recorded HTTP request, including its multipart body.
 type Request struct {
 	IP          string
 	Path        string
@@ -40,8 +42,10 @@ func (r Request) ChannelParam() int {
 	return int(v)
 }
 
+// UnreachableMode is how the network treats addresses with no device.
 type UnreachableMode int
 
+// Behaviours for unreachable addresses.
 const (
 	Refuse UnreachableMode = iota
 	Hang
@@ -57,6 +61,7 @@ type Network struct {
 	Unreachable UnreachableMode
 }
 
+// NewNetwork returns an empty LAN.
 func NewNetwork() *Network {
 	return &Network{devices: make(map[string]*Device)}
 }
@@ -119,6 +124,7 @@ func (n *Network) AllWrites() []Request {
 	return out
 }
 
+// DeviceResponse mimics the firmware: HTTP 200 with a text/html content type and a JSON body.
 func DeviceResponse(body string) *http.Response {
 	return &http.Response{
 		StatusCode: http.StatusOK,
@@ -127,6 +133,7 @@ func DeviceResponse(body string) *http.Response {
 	}
 }
 
+// StatusResponse builds an arbitrary HTTP response for failure cases.
 func StatusResponse(status int, body string) *http.Response {
 	return &http.Response{StatusCode: status, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}
 }
