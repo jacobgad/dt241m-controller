@@ -98,6 +98,12 @@ func clientConfig(opts PahoOptions, pc *pahoConnection) (autopaho.ClientConfig, 
 			ClientID: opts.ClientID,
 			OnPublishReceived: []func(paho.PublishReceived) (bool, error){
 				func(pr paho.PublishReceived) (bool, error) {
+					// Retained deliveries are broker replays, never live input; a stale
+					// command replayed at (re)subscribe must not re-route devices.
+					if pr.Packet.Retain {
+						opts.Log.Warn("mqtt_retained_message_dropped", "topic", pr.Packet.Topic)
+						return true, nil
+					}
 					for _, h := range pc.messageHandlers() {
 						h(pr.Packet.Topic, pr.Packet.Payload)
 					}
@@ -140,12 +146,19 @@ func (p *pahoConnection) Publish(ctx context.Context, topic string, payload stri
 }
 
 func (p *pahoConnection) Subscribe(ctx context.Context, topics []string) error {
+	_, err := p.cm.Subscribe(ctx, subscription(topics))
+	return sessionError(err)
+}
+
+// 2 is the MQTT 5 Retain Handling option "do not send retained messages at subscribe".
+const neverReplayRetained = 2
+
+func subscription(topics []string) *paho.Subscribe {
 	subs := make([]paho.SubscribeOptions, len(topics))
 	for i, t := range topics {
-		subs[i] = paho.SubscribeOptions{Topic: t, QoS: 1}
+		subs[i] = paho.SubscribeOptions{Topic: t, QoS: 1, RetainHandling: neverReplayRetained}
 	}
-	_, err := p.cm.Subscribe(ctx, &paho.Subscribe{Subscriptions: subs})
-	return sessionError(err)
+	return &paho.Subscribe{Subscriptions: subs}
 }
 
 func sessionError(err error) error {

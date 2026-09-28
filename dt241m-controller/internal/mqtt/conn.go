@@ -11,7 +11,8 @@ import (
 // treats it as "will be republished on reconnect" rather than as a fault.
 var ErrNotConnected = errors.New("mqtt: not connected")
 
-// MessageHandler receives inbound publishes in arrival order.
+// MessageHandler receives inbound publishes in arrival order. Only live publishes are
+// delivered: retained messages replayed by the broker never reach a handler.
 type MessageHandler func(topic string, payload []byte)
 
 // Connection is the broker session as the controller sees it.
