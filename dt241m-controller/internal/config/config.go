@@ -35,6 +35,25 @@ type MQTT struct {
 	TLS      bool
 }
 
+// String renders the broker address without the password, so formatting an MQTT
+// value (or any struct containing one) can never leak the credential into logs.
+func (m MQTT) String() string {
+	return fmt.Sprintf("mqtt://%s@%s:%d tls=%v", m.Username, m.Host, m.Port, m.TLS)
+}
+
+// GoString mirrors String for %#v, which bypasses Stringer.
+func (m MQTT) GoString() string { return m.String() }
+
+// LogValue renders the broker details for slog without the password.
+func (m MQTT) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("host", m.Host),
+		slog.Int("port", m.Port),
+		slog.String("username", m.Username),
+		slog.Bool("tls", m.TLS),
+	)
+}
+
 // Config is everything the binary needs to start.
 type Config struct {
 	Options      Options

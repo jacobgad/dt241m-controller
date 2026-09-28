@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -107,6 +108,33 @@ func TestMQTTFromSupervisor(t *testing.T) {
 	defer down.Close()
 	if _, err := config.MQTTFromSupervisor(context.Background(), "tok", &http.Client{Transport: rewriteHost(down.URL)}); err == nil {
 		t.Fatal("expected error when service unavailable")
+	}
+}
+
+func TestMQTTNeverRendersPassword(t *testing.T) {
+	t.Parallel()
+	m := config.MQTT{Host: "core-mosquitto", Port: 1883, Username: "addons", Password: "s3cret", TLS: true}
+	cfg := config.Config{MQTT: m, DatabasePath: "/data/dt241m.sqlite"}
+
+	var logs strings.Builder
+	log := slog.New(slog.NewTextHandler(&logs, nil))
+	log.Info("connecting", "mqtt", m, "cfg", cfg)
+
+	rendered := []string{
+		fmt.Sprintf("%v", m), fmt.Sprintf("%+v", m), fmt.Sprintf("%#v", m), fmt.Sprint(m),
+		fmt.Sprintf("%v", cfg), fmt.Sprintf("%+v", cfg), fmt.Sprintf("%#v", cfg),
+		logs.String(),
+	}
+	for _, out := range rendered {
+		if strings.Contains(out, "s3cret") {
+			t.Fatalf("password rendered: %s", out)
+		}
+	}
+	if out := fmt.Sprintf("%v", m); !strings.Contains(out, "core-mosquitto:1883") {
+		t.Fatalf("broker address missing from %q", out)
+	}
+	if !strings.Contains(logs.String(), "mqtt.host=core-mosquitto") {
+		t.Fatalf("structured fields missing: %s", logs.String())
 	}
 }
 

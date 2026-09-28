@@ -50,11 +50,11 @@ Prefix `dt241m/`. `<mac>` is the lower-case MAC without separators (`fc19286cd6d
 | `dt241m/device/<mac>/name/{state,set}` | user-editable name |
 | `dt241m/device/<mac>/{ip,role}/state` | diagnostics |
 
-Home Assistant device identifier `dt241m:<mac>`; entity unique IDs `dt241m_<mac>_{channel,source,name,ip_address,role}`; discovery configs under `homeassistant/<component>/dt241m_<mac>/<object>/config`. State is retained, commands are not.
+Home Assistant device identifier `dt241m:<mac>`; entity unique IDs `dt241m_<mac>_{channel,source,name,ip_address,role}`; discovery configs under `homeassistant/<component>/dt241m_<mac>/<object>/config`. State is retained, commands are not, and retained messages are never acted on.
 
 ## Development
 
-Requires Go ≥ 1.25, [golangci-lint](https://golangci-lint.run) v2, Docker for images.
+Requires Go ≥ 1.27, [golangci-lint](https://golangci-lint.run) v2, Docker for images. CI runs the same gate on every push, validates the add-on config and builds the image for both supported architectures.
 
 ```bash
 cd dt241m-controller
@@ -71,7 +71,7 @@ MQTT_HOST=127.0.0.1 DT241M_OPTIONS_PATH=/tmp/options.json DT241M_DATABASE_PATH=/
 
 Build the add-on image: `docker buildx build --platform linux/arm64 --build-arg BUILD_VERSION=$(grep '^version' dt241m-controller/config.yaml | cut -d'"' -f2) -t dt241m-controller --load dt241m-controller`.
 
-Conventions: `gofmt`, zero lint findings, godoc on every package and exported identifier, other comments only for non-obvious *why*. Schema changes append to `migrations` in `internal/store/store.go` and bump `schemaVersion`; 1.x databases are adopted in place.
+Conventions: `gofmt`, zero lint findings, godoc on every package and exported identifier, other comments only for non-obvious *why*. Schema changes append to `migrations` in `internal/store/store.go` and bump `schemaVersion`; 1.x databases are adopted in place. Hardware quirks and production incidents get dated write-ups in `docs/diagnostics/`.
 
 ```text
 dt241m-controller/

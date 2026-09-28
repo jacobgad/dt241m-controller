@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.1.3
+
+- Never act on retained MQTT messages. A retained message left on a command topic (for example by a misconfigured client) was replayed by the broker on every reconnect and would have re-sent that command each time, violating the guarantee that restarts never route. Subscriptions now use MQTT 5 Retain Handling 2 so the broker never replays stored messages, and any retained delivery that arrives regardless is dropped and logged as `mqtt_retained_message_dropped`.
+- The add-on is no longer marked experimental; it has run in production on a 16-unit installation since 2.0.
+- The broker password can no longer appear in formatted log output: the MQTT settings render as `mqtt://user@host:port` through every `fmt` and `slog` path.
+- CI on GitHub Actions: add-on config validation, the full lint and race-test gate, and image builds for both supported architectures on every push. Toolchain updated to Go 1.27.
+
 ## 2.1.2
 
 - Fix devices showing as unavailable (Channel empty, Source unavailable) after an add-on start or Home Assistant restart. A full republish running alongside the startup probe could leave a stale `offline` as the retained availability; a full republish can no longer interleave with per-device updates. Publishing also no longer depends on a connection flag that could lag the broker session, which had silently dropped the first republish.
